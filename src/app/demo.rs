@@ -451,6 +451,223 @@ fn seed_notifications(s: &mut AppState) {
     );
 }
 
+/// An English showcase workspace for the README screenshot (the
+/// `readme_screenshot` generator in `gui`): a fictional team in launch week,
+/// with emoji, reactions, a thread, a running huddle and a Second Brain note.
+/// [`seed`] stays the review fixture the snapshot tests compare against.
+pub fn seed_showcase(s: &mut AppState) {
+    // Replace what [`seed`] put in (it runs first, through `App::demo`).
+    s.channels = Arc::new(Vec::new());
+    s.huddles.clear();
+    s.notifications.clear();
+    s.pins.clear();
+    s.saved.clear();
+    s.saved_counts = Default::default();
+    s.threads.clear();
+    s.threads_unread = 0;
+    s.mentions = Arc::new(Vec::new());
+    s.scheduled.clear();
+    s.authenticated = true;
+    s.live = true;
+    s.my_user_id = ME.to_string();
+    s.team_id = "T_SHOW".to_string();
+    s.status = "Northwind · launch week".to_string();
+
+    let people: &[(&str, &str, bool)] = &[
+        (ME, "Sam Rivera", true),
+        ("U_MAYA", "Maya Chen", true),
+        ("U_LEO", "Leo Park", true),
+        ("U_PRIYA", "Priya Nair", false),
+        ("U_TOM", "Tom Becker", true),
+        ("U_CI", "ci-bot", true),
+    ];
+    s.user_names = Arc::new(people.iter().map(|(id, n, _)| (id.to_string(), n.to_string())).collect());
+    s.usernames = Arc::new(
+        people
+            .iter()
+            .map(|(_, n, _)| (n.to_lowercase().replace(' ', "."), n.to_string()))
+            .collect(),
+    );
+    s.presence = Arc::new(people.iter().map(|(id, _, on)| (id.to_string(), *on)).collect());
+    s.user_status = Arc::new(
+        [
+            ("U_MAYA", ":headphones:", "Deep focus"),
+            ("U_PRIYA", ":palm_tree:", "Back on Monday"),
+        ]
+        .iter()
+        .map(|(id, e, t)| {
+            (
+                id.to_string(),
+                UserStatus {
+                    emoji: e.to_string(),
+                    text: t.to_string(),
+                },
+            )
+        })
+        .collect(),
+    );
+    s.bot_users = Arc::new(["U_CI".to_string()].into_iter().collect());
+
+    let rows: &[(&str, &str, bool, Option<&str>)] = &[
+        ("C_LAUNCH", "launch", false, None),
+        ("C_ENG", "engineering", false, None),
+        ("C_DESIGN", "design", false, None),
+        ("C_GEN", "general", false, None),
+        ("C_RANDOM", "random", false, None),
+        ("D_MAYA", "Maya Chen", true, Some("U_MAYA")),
+        ("D_LEO", "Leo Park", true, Some("U_LEO")),
+        ("M_CREW", "Maya Chen, Leo Park, Tom Becker", true, Some("U_TOM")),
+    ];
+    for (id, name, is_dm, peer) in rows {
+        ensure_channel(s, id.to_string(), name.to_string(), *is_dm, peer.map(str::to_string));
+    }
+    {
+        let ch = Arc::make_mut(&mut s.channels);
+        for c in ch.iter_mut() {
+            match c.id.as_str() {
+                "C_ENG" => {
+                    c.unread = true;
+                    c.mentions = 2;
+                }
+                "C_DESIGN" | "C_RANDOM" => c.unread = true,
+                "D_LEO" => {
+                    c.unread = true;
+                    c.mentions = 1;
+                }
+                _ => {}
+            }
+        }
+    }
+    s.selected_channel = s.channels.iter().position(|c| c.id == "C_LAUNCH").unwrap_or(0);
+
+    let question = "1792138800.000500";
+    let msgs = serde_json::json!([
+        {
+            "user": "U_MAYA",
+            "ts": "1792135200.000100",
+            "text": "Morning team :sunny: Release candidate *2.0-rc.3* is live on staging. Here's <https://example.com/changelog|what's new>.",
+            "reactions": [
+                { "name": "rocket", "count": 5, "users": ["U_LEO", "U_TOM", "U_PRIYA", ME, "U_CI"] },
+                { "name": "tada", "count": 3, "users": ["U_LEO", "U_TOM", ME] },
+                { "name": "eyes", "count": 2, "users": ["U_PRIYA", "U_TOM"] }
+            ]
+        },
+        {
+            "user": "U_LEO",
+            "ts": "1792135800.000200",
+            "text": "Ran the full smoke suite on it: 142/142 green :white_check_mark: Cold start is down to *0.8 s* :zap:",
+            "reactions": [
+                { "name": "fire", "count": 4, "users": ["U_MAYA", "U_TOM", "U_PRIYA", ME] },
+                { "name": "100", "count": 2, "users": ["U_MAYA", ME] }
+            ]
+        },
+        {
+            "user": "U_CI",
+            "bot_id": "B_CI",
+            "ts": "1792136400.000300",
+            "text": "",
+            "bot_profile": { "name": "ci-bot", "app_id": "A_CI", "icons": { "image_48": "" } },
+            "attachments": [{
+                "color": "36a64f",
+                "title": "Build #2048 passed",
+                "title_link": "https://example.com/builds/2048",
+                "text": "Branch: `release/2.0` · Duration: 3m 41s · Coverage: *87%*"
+            }],
+            "blocks": [{
+                "type": "actions",
+                "block_id": "build_actions",
+                "elements": [
+                    { "type": "button", "action_id": "promote", "text": { "type": "plain_text", "text": "Promote to production" }, "value": "2048", "style": "primary" },
+                    { "type": "button", "action_id": "logs", "text": { "type": "plain_text", "text": "View logs" }, "url": "https://example.com/builds/2048/logs" }
+                ]
+            }]
+        },
+        {
+            "user": "U_PRIYA",
+            "ts": "1792137600.000400",
+            "text": "The new onboarding illustrations are in :art: Huge thanks to <@U_TOM> for the late-night polish :pray:",
+            "reactions": [
+                { "name": "heart", "count": 6, "users": ["U_MAYA", "U_LEO", "U_TOM", ME, "U_CI", "U_PRIYA"] },
+                { "name": "sparkles", "count": 3, "users": ["U_MAYA", "U_LEO", ME] }
+            ]
+        },
+        {
+            "user": "U_TOM",
+            "ts": question,
+            "text": "Are we still on track to ship on Thursday? :thinking_face:",
+            "thread_ts": question,
+            "reply_count": 3
+        },
+        {
+            "user": ME,
+            "ts": "1792140000.000600",
+            "text": "Code freeze tonight at 18:00 :lock: Ping me if anything still needs to land.",
+            "reactions": [
+                { "name": "+1", "count": 4, "users": ["U_MAYA", "U_LEO", "U_TOM", "U_PRIYA"] },
+                { "name": "ok_hand", "count": 2, "users": ["U_LEO", "U_TOM"] }
+            ]
+        },
+        {
+            "user": "U_LEO",
+            "ts": "1792140600.000700",
+            "text": "Memory check before the freeze :mag:\n```\n$ ps -o rss=,comm= -C slaq\n113284 slaq\n```",
+            "reactions": [
+                { "name": "exploding_head", "count": 3, "users": ["U_MAYA", "U_TOM", ME] },
+                { "name": "muscle", "count": 2, "users": ["U_PRIYA", "U_MAYA"] }
+            ]
+        }
+    ]);
+    s.messages = parse_all(&msgs);
+    s.messages_channel = Some("C_LAUNCH".to_string());
+
+    // The thread on Tom's question, open on the right.
+    let replies = serde_json::json!([
+        { "user": "U_MAYA", "ts": "1792139100.000510", "text": "Yes! Release notes are drafted :memo:", "thread_ts": question },
+        { "user": "U_LEO", "ts": "1792139400.000520", "text": "QA signed off an hour ago :tada:", "thread_ts": question },
+        { "user": ME, "ts": "1792139700.000530", "text": "Then Thursday it is :rocket:", "thread_ts": question }
+    ]);
+    s.thread_parent_ts = Some(question.to_string());
+    s.thread_channel_id = Some("C_LAUNCH".to_string());
+    s.thread_messages = parse_all(&replies);
+
+    // A Second Brain note under the question, as the mod writes it.
+    let note = "🧠 Yes: the release plan targets Thursday 10:00 [1], and the last blocker, \
+                the upload retry, was fixed on Tuesday [2].\n\nSources:\n\
+                [1] #launch · 12 Oct 2026 · Maya Chen\n\
+                [2] code src/upload/retry.rs:88";
+    s.decorations = Arc::new(
+        [(
+            "C_LAUNCH".to_string(),
+            [(question.to_string(), vec![note.to_string()])].into_iter().collect(),
+        )]
+        .into_iter()
+        .collect(),
+    );
+
+    s.huddles.insert(
+        "C_DESIGN".to_string(),
+        Huddle {
+            room_id: "R_SHOW".to_string(),
+            participants: vec!["U_PRIYA".to_string(), "U_TOM".to_string()],
+            caller: None,
+            ringing: false,
+        },
+    );
+    push_notification(
+        s,
+        NotifEntry {
+            channel_id: "D_LEO".to_string(),
+            channel_name: "Leo Park".to_string(),
+            author: "Leo Park".to_string(),
+            text: "Got a minute to pair on the release checklist?".to_string(),
+            ts: "1792140900.000100".to_string(),
+            is_dm: true,
+            thread_ts: None,
+            read: false,
+        },
+    );
+}
+
 fn parse_all(msgs: &serde_json::Value) -> Vec<MessageEntry> {
     msgs.as_array()
         .map(|arr| arr.iter().filter_map(|m| parse_message_as(m, ME)).collect())

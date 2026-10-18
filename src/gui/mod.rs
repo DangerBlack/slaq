@@ -10425,17 +10425,43 @@ mod snapshot_tests {
         size: egui::Vec2,
         build: impl FnMut(&egui::Context) + 'a,
     ) -> egui_kittest::Harness<'a, bool> {
+        harness_in("it", size, 1.0, build)
+    }
+
+    /// Compares the harness's rendering with `tests/snapshots/<name>.png`.
+    ///
+    /// The images are recorded on a hardware renderer, and a software one (the
+    /// CI runner's) anti-aliases a few dozen pixels differently, which no
+    /// per-pixel tolerance absorbs safely. So with `SLAQ_SNAPSHOT_RENDER_ONLY`
+    /// set (the CI workflow sets it) every snapshot is still **rendered**, so a
+    /// panic or a failed layout assertion still fails, but its pixels are not
+    /// compared. Locally the comparison always runs.
+    fn snapshot<S>(h: &egui_kittest::Harness<'_, S>, name: &str) {
+        if std::env::var_os("SLAQ_SNAPSHOT_RENDER_ONLY").is_some() {
+            let _ = egui_kittest::wgpu::TestRenderer::new().render(h);
+            return;
+        }
+        h.wgpu_snapshot(name);
+    }
+
+    /// [`the_harness`] in a given UI language and pixel density.
+    fn harness_in<'a>(
+        locale: &'static str,
+        size: egui::Vec2,
+        pixels_per_point: f32,
+        build: impl FnMut(&egui::Context) + 'a,
+    ) -> egui_kittest::Harness<'a, bool> {
         let mut build = build;
         egui_kittest::Harness::builder()
             .with_size(size)
-            .with_pixels_per_point(1.0)
+            .with_pixels_per_point(pixels_per_point)
             .build_state(
                 move |ctx, ready: &mut bool| {
                     // Pin the UI language. `rust_i18n` keeps the locale in a
                     // process-global that other tests also set (always to
                     // "it"), so pinning the same value keeps a snapshot from
                     // flipping its labels when the suite runs in parallel.
-                    rust_i18n::set_locale("it");
+                    rust_i18n::set_locale(locale);
                     if !*ready {
                         install_fonts(ctx);
                         install_style(ctx);
@@ -10525,7 +10551,7 @@ mod snapshot_tests {
             });
         });
         h.run();
-        h.wgpu_snapshot("bold_family");
+        snapshot(&h, "bold_family");
     }
 
     #[test]
@@ -10551,7 +10577,7 @@ mod snapshot_tests {
             });
         });
         h.run();
-        h.wgpu_snapshot("theme_and_widgets");
+        snapshot(&h, "theme_and_widgets");
     }
 
     /// The exact bug we fixed: a content-sized `SidePanel` must not grow across
@@ -10647,7 +10673,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("main_conversation");
+        snapshot(&h, "main_conversation");
     }
 
     /// The same window with the thread panel open (the demo seeds one in
@@ -10657,7 +10683,7 @@ mod snapshot_tests {
         let (_rt, mut gui) = demo_gui();
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("thread_panel");
+        snapshot(&h, "thread_panel");
     }
 
     /// A date divider heads each new local day in the conversation, like the
@@ -10678,7 +10704,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("day_divider");
+        snapshot(&h, "day_divider");
     }
 
     /// No message body may spill past the right edge of its column, whatever
@@ -11040,7 +11066,7 @@ mod snapshot_tests {
             }
         });
         h.run();
-        h.wgpu_snapshot("composer_long_text");
+        snapshot(&h, "composer_long_text");
     }
 
     /// The same for the (narrow) thread composer, where a long reply wraps into
@@ -11061,7 +11087,7 @@ mod snapshot_tests {
             .to_string();
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("thread_composer_long_text");
+        snapshot(&h, "thread_composer_long_text");
     }
 
     /// A mod decoration must render under the right message in the timeline, and
@@ -11110,7 +11136,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("decorations_in_conversation");
+        snapshot(&h, "decorations_in_conversation");
     }
 
     /// A mod decoration must render under the right reply in the thread panel.
@@ -11151,7 +11177,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("decorations_in_thread");
+        snapshot(&h, "decorations_in_thread");
     }
 
     /// No unpainted column may separate the panels.
@@ -11475,7 +11501,45 @@ mod snapshot_tests {
         with_state(&gui, |s| s.authenticated = false);
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("login_screen");
+        snapshot(&h, "login_screen");
+    }
+
+    /// Renders `docs/screenshot.png`, the README's screenshot: the English
+    /// showcase workspace (`app::demo::seed_showcase`) with the real colour
+    /// emoji, at 2x density. The emoji come from Slack's public CDN, so this
+    /// needs a network and is **ignored** by default. Regenerate with:
+    ///
+    /// `cargo test --features mods readme_screenshot -- --ignored`
+    #[test]
+    #[ignore]
+    fn readme_screenshot() {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("tokio runtime");
+        // The GUI spawns the emoji downloads onto the ambient runtime.
+        let _rt = rt.enter();
+        let app = App::demo(None);
+        let state = app.state().clone();
+        crate::app::demo::seed_showcase(&mut state.try_write().expect("state not locked"));
+        let mut gui = Gui::new(app, None, rt.handle().clone());
+        let mut h = harness_in("en", egui::vec2(1440.0, 1040.0), 2.0, move |ctx| {
+            gui.draw(ctx)
+        });
+        // Each frame asks for the emoji it draws; the downloads run while the
+        // runtime is driven, then the next frame turns them into textures.
+        for _ in 0..6 {
+            h.run();
+            rt.block_on(tokio::time::sleep(std::time::Duration::from_millis(1500)));
+        }
+        // Driving the runtime also ran the demo's own tasks (presence), which
+        // fail without a session and overwrite the status line: restore it.
+        state.try_write().expect("state not locked").status = "Northwind · launch week".to_string();
+        h.run();
+        let image = egui_kittest::wgpu::TestRenderer::new().render(&h);
+        let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/screenshot.png");
+        image.save(&out).expect("save the screenshot");
+        eprintln!("wrote {} ({}x{})", out.display(), image.width(), image.height());
     }
 
     /// The mods consent dialog: what a mod asks for, as checkboxes. Covers a
@@ -11556,7 +11620,7 @@ mod snapshot_tests {
         gui.access_ui.open.insert("dev.slaq.example/hosts".into());
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("mods_consent");
+        snapshot(&h, "mods_consent");
     }
 
     /// The consent dialog's channel/host editors: the user picks channels beyond
@@ -11604,7 +11668,7 @@ mod snapshot_tests {
         gui.access_ui.open.insert(format!("dev.slaq.brain/{open}"));
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot(name);
+        snapshot(&h, name);
     }
 
     #[cfg(feature = "mods")]
@@ -11637,7 +11701,7 @@ mod snapshot_tests {
         let mut gui = gui;
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("mods_secrets");
+        snapshot(&h, "mods_secrets");
     }
 
     /// The consent dialog with many mods (and many capabilities each): the list
@@ -11699,7 +11763,7 @@ mod snapshot_tests {
         // a list that over-budgets the window pushes it off — the diff catches it.
         // A widget query cannot: egui reports *unclipped* AccessKit bounds, so a
         // clipped button still "exists on screen" as far as the tree is concerned.
-        h.wgpu_snapshot("mods_consent_many");
+        snapshot(&h, "mods_consent_many");
     }
 
     /// The "Running mods" window: a live mod with its background lane, and a
@@ -11752,7 +11816,7 @@ mod snapshot_tests {
         gui.running_open = true;
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("mods_running");
+        snapshot(&h, "mods_running");
         let _ = std::fs::remove_dir_all(&root);
     }
 
@@ -11800,7 +11864,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("mods_settings");
+        snapshot(&h, "mods_settings");
     }
 
     /// The composer with a mod-declared composer action: a button row above the
@@ -11821,7 +11885,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("composer_actions");
+        snapshot(&h, "composer_actions");
     }
 
     /// The modal dialog a mod showed (`ui.dialog`): title, blocks, actions and the
@@ -11848,7 +11912,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("mod_dialog");
+        snapshot(&h, "mod_dialog");
     }
 
     /// The "find in conversation" bar, with a query that matches the demo.
@@ -11859,7 +11923,7 @@ mod snapshot_tests {
         gui.find = "deploy".to_string();
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("find_bar");
+        snapshot(&h, "find_bar");
     }
 
     /// The notification centre popover, anchored under the bell.
@@ -11871,7 +11935,7 @@ mod snapshot_tests {
             egui::Rect::from_min_size(egui::pos2(1140.0, 18.0), egui::vec2(24.0, 24.0));
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("notification_center");
+        snapshot(&h, "notification_center");
     }
 
     /// The notification centre with many entries: the panel grows to the space
@@ -11900,7 +11964,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("notification_center_many");
+        snapshot(&h, "notification_center_many");
     }
 
     /// The panel must also grow on a **reopen**: egui keeps the popover's area
@@ -11939,7 +12003,7 @@ mod snapshot_tests {
         for _ in 0..8 {
             h.step();
         }
-        h.wgpu_snapshot("notification_center_reopen");
+        snapshot(&h, "notification_center_reopen");
     }
 
     /// `n` notifications, `long` ones with the multi-line text a real bot sends.
@@ -11993,7 +12057,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("notification_center_long_entries");
+        snapshot(&h, "notification_center_long_entries");
     }
 
     /// The profile popover, anchored under the avatar button.
@@ -12005,7 +12069,7 @@ mod snapshot_tests {
             egui::Rect::from_min_size(egui::pos2(1080.0, 18.0), egui::vec2(24.0, 24.0));
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("profile_popover");
+        snapshot(&h, "profile_popover");
     }
 
     /// The settings window: language, interface scale, desktop notifications
@@ -12024,9 +12088,9 @@ mod snapshot_tests {
         // The "Mods…" entry is `mods`-gated, so the window differs per build;
         // keep a baseline for each so both CI builds have one.
         #[cfg(feature = "mods")]
-        h.wgpu_snapshot("settings_window_mods");
+        snapshot(&h, "settings_window_mods");
         #[cfg(not(feature = "mods"))]
-        h.wgpu_snapshot("settings_window");
+        snapshot(&h, "settings_window");
     }
 
     /// The notification switch flips the state the panel shows (the notifier
@@ -12061,7 +12125,7 @@ mod snapshot_tests {
         with_state(&gui, |s| s.fail("Non sei in #canale".to_string()));
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("error_toast");
+        snapshot(&h, "error_toast");
     }
 
     /// The re-login dialog: the chat stays visible (the app is still
@@ -12077,7 +12141,7 @@ mod snapshot_tests {
         );
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("session_expired_dialog");
+        snapshot(&h, "session_expired_dialog");
     }
 
     /// "Later" closes the dialog; it comes back on the next failure.
@@ -12139,7 +12203,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("self_mention");
+        snapshot(&h, "self_mention");
     }
 
     /// Arrows and other symbols Noto Sans lacks must fall back to a font that
@@ -12159,7 +12223,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("symbols");
+        snapshot(&h, "symbols");
     }
 
     /// The symbols the interface itself hardcodes must all have a glyph: a
@@ -12248,7 +12312,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("search_results");
+        snapshot(&h, "search_results");
     }
 
     /// The sidebar filter — the quick channel switcher — with a query: the
@@ -12263,7 +12327,7 @@ mod snapshot_tests {
         gui.search = "e".to_string();
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("sidebar_filter");
+        snapshot(&h, "sidebar_filter");
     }
 
     /// The "new channel" dialog.
@@ -12280,7 +12344,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("new_channel_dialog");
+        snapshot(&h, "new_channel_dialog");
     }
 
     /// The people picker for a new group DM, with a couple of people chosen.
@@ -12297,7 +12361,7 @@ mod snapshot_tests {
         gui.people_pick = Some(pick);
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("people_pick_dialog");
+        snapshot(&h, "people_pick_dialog");
     }
 
     /// The "is typing…" line above the composer.
@@ -12317,7 +12381,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("typing_indicator");
+        snapshot(&h, "typing_indicator");
     }
 
     /// The confirmation before removing a member from a channel.
@@ -12331,7 +12395,7 @@ mod snapshot_tests {
         gui.kick_pending = Some(("C_ENG".into(), "U_ANA".into(), "Ana Rossi".into()));
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("remove_member_dialog");
+        snapshot(&h, "remove_member_dialog");
     }
 
     /// The "saved for later" view.
@@ -12345,7 +12409,7 @@ mod snapshot_tests {
         gui.saved_open = true;
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("saved_view");
+        snapshot(&h, "saved_view");
     }
 
     /// The "pinned" tab of the saved view.
@@ -12360,7 +12424,7 @@ mod snapshot_tests {
         gui.saved_tab = SavedTab::Pinned;
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("pinned_view");
+        snapshot(&h, "pinned_view");
     }
 
     /// The "Threads" inbox.
@@ -12374,7 +12438,7 @@ mod snapshot_tests {
         gui.threads_open = true;
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("threads_view");
+        snapshot(&h, "threads_view");
     }
 
     /// The "Mentions" view.
@@ -12388,7 +12452,7 @@ mod snapshot_tests {
         gui.mentions_open = true;
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("mentions_view");
+        snapshot(&h, "mentions_view");
     }
 
     /// The "Scheduled" view.
@@ -12402,7 +12466,7 @@ mod snapshot_tests {
         gui.scheduled_open = true;
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("scheduled_view");
+        snapshot(&h, "scheduled_view");
     }
 
     /// A quote: a faint background and a left bar spanning the whole block.
@@ -12420,7 +12484,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("quote_style");
+        snapshot(&h, "quote_style");
     }
 
     /// The channel-info side panel: topic, purpose and the member list.
@@ -12465,7 +12529,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("channel_info");
+        snapshot(&h, "channel_info");
     }
 
     /// The emoji/reaction picker popup.
@@ -12480,7 +12544,7 @@ mod snapshot_tests {
         });
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("emoji_picker");
+        snapshot(&h, "emoji_picker");
     }
 
     /// Editing a message replaces the composer with the edit box and a save
@@ -12494,7 +12558,7 @@ mod snapshot_tests {
         ));
         let mut h = app_harness(move |ctx| gui.draw(ctx));
         h.run();
-        h.wgpu_snapshot("editing");
+        snapshot(&h, "editing");
     }
 
     /// The `/` autocompletion popup. It needs the composer focused, so the
@@ -12534,7 +12598,7 @@ mod snapshot_tests {
         let id = h.state().composer_id.expect("composer id");
         h.ctx.memory_mut(|m| m.request_focus(id));
         h.run();
-        h.wgpu_snapshot("slash_completion");
+        snapshot(&h, "slash_completion");
     }
 
     /// Switching conversation must stash the draft and bring it back, not carry

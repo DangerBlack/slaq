@@ -217,10 +217,19 @@ hash, which change every commit).
 
 The renderer is wgpu. On a machine without a GPU it uses the Vulkan **Lavapipe**
 software driver (`mesa-vulkan-drivers` on Debian/Ubuntu), so snapshots also run
-headless; install that package if rendering fails. Pixel differences are
-tolerated up to a small threshold, but a different anti-aliasing implementation
-can still shift pixels — a snapshot that flakes across machines is a renderer
-difference, not a UI change.
+headless; install that package if rendering fails.
+
+A different renderer anti-aliases slightly differently, and a few dozen pixels
+move. The baselines are recorded on a hardware renderer, so:
+- **CI** (a software renderer) sets `SLAQ_SNAPSHOT_RENDER_ONLY=1`. Every
+  snapshot is still rendered, so a panic or a failed layout assertion fails the
+  build, but its pixels are not compared.
+- **Locally** the comparison always runs. A snapshot that differs only on
+  another machine is a renderer difference, not a UI change.
+
+The README's screenshot (`docs/screenshot.png`) is generated the same way, from
+an English showcase workspace with the real colour emoji (it needs a network):
+`cargo test --features mods readme_screenshot -- --ignored`.
 
 After an *intended* UI change:
 

@@ -12,6 +12,8 @@ slaq                113 MiB
 Same workspace, same channels open, calls included. (Measured before the mod
 system existed; mods you enable add their own memory.)
 
+![slaq: a channel with colour emoji and reactions, a bot message with buttons, a Second Brain note under a question, and the thread open on the right](docs/screenshot.png)
+
 ## What it does
 
 Everything below works and is used daily.
