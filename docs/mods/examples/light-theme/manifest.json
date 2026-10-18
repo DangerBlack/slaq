@@ -1,0 +1,54 @@
+{
+  "manifestVersion": 0,
+  "id": "dev.danger.light-theme",
+  "name": "Light theme",
+  "version": "0.1.1",
+  "apiVersion": "0.1",
+  "description": "A light palette for slaq, delivered as a mod (ui.theme). Data-only: the component does nothing.",
+  "entry": {
+    "type": "wasm",
+    "path": "mod.wasm"
+  },
+  "capabilities": {
+    "ui.theme": {}
+  },
+  "ui": {
+    "theme": {
+      "bg_base": "#f4f5f7",
+      "bg_panel": "#e7eaef",
+      "bg_elevated": "#ffffff",
+      "bg_input": "#ffffff",
+      "bg_hover": "#e2e6ec",
+      "bg_active": "#c9d6fb",
+      "border_subtle": "#d5d9df",
+      "border_strong": "#b6bbc5",
+      "text_primary": "#1b1f27",
+      "text_secondary": "#48505d",
+      "text_muted": "#6b7280",
+      "text_on_accent": "#ffffff",
+      "ink": "#14161a",
+      "link": "#1d6fd6",
+      "accent": "#4f6bed",
+      "success": "#1f8f45",
+      "warning": "#9a6a12",
+      "danger": "#c0392b",
+      "info": "#1d6fd6",
+      "mention_self_bg": "#f2c744",
+      "mention_self_fg": "#1a1508",
+      "mention_other_fg": "#a06a00",
+      "unread_badge_bg": "#1b1f27",
+      "unread_badge_fg": "#f4f5f7",
+      "danger_fill": "#c0392b",
+      "on_danger": "#ffffff",
+      "reaction_bg": "#e2e6ec",
+      "code_bg": "#eceef2",
+      "quote_border": "#9aa0ab",
+      "favorite": "#b8860b",
+      "presence_active": "#1f8f45",
+      "presence_away": "#6b7280",
+      "presence_quiet": "#6a5acd",
+      "scrim": "#000000",
+      "danger_bg": "#f3d9d6"
+    }
+  }
+}

@@ -1,0 +1,82 @@
+# cargo-deny configuration — https://embarkstudios.github.io/cargo-deny/
+#
+# Run locally:   cargo deny check
+# The same command runs in CI (.github/workflows/security.yml).
+#
+# Every `ignore` below is a deliberate, reviewed decision: it must say *why*
+# the advisory does not apply and what would remove it.
+
+[graph]
+all-features = true
+
+[advisories]
+version = 2
+db-urls = ["https://github.com/rustsec/advisory-db"]
+# Fail the build on a real vulnerability; report every unmaintained crate.
+unmaintained = "all"
+yanked = "deny"
+ignore = [
+  # `paste` — build-time proc-macro pulled by `exr`/`image` (through `arboard`).
+  # Not compiled into the shipped code path we exercise.
+  "RUSTSEC-2024-0436",
+  # `bincode` 1.x — used by `webrtc-dtls` for the handshake encoding.
+  "RUSTSEC-2025-0141",
+  # `audiopus_sys` — the `opus` binding used for huddle audio; no maintained
+  # replacement exists in the ecosystem yet.
+  "RUSTSEC-2026-0150",
+  # `fxhash` — transitive on a non-Linux target only.
+  "RUSTSEC-2025-0057",
+  # `ttf-parser` — reached via `ab_glyph`/`epaint`. Only bundled OFL fonts are
+  # parsed, never a font supplied by the network or by a message.
+  "RUSTSEC-2026-0192",
+  # `quick-xml` 0.30 comes from `zbus_xml`, pulled by `accesskit` (the eframe/
+  # egui accessibility integration). No upgrade path exists in that graph
+  # (`zbus_xml` 4.0 pins `^0.30`), the app never parses XML from messages, and
+  # the input here is the local AT-SPI D-Bus introspection XML. Revisit when
+  # egui's accessibility stack moves to a newer `zbus_xml`.
+  "RUSTSEC-2026-0194",
+  "RUSTSEC-2026-0195",
+  # `zvariant`, `zbus_names`, `zvariant_derive` — informational "unmaintained"
+  # (no vulnerability, no patched version): merged into `zbus` 6.0. They reach us
+  # only through the D-Bus stack of egui's accessibility (`accesskit` -> `atspi`
+  # -> zbus 4.4), `rfd` (`ashpd` -> zbus 5) and `notify-rust` (zbus 5); none has a
+  # zbus-6 release in our range, and moving eframe/egui is a GUI migration of its
+  # own. Revisit when those dependencies move to zbus 6.
+  "RUSTSEC-2026-0370",
+  "RUSTSEC-2026-0371",
+  "RUSTSEC-2026-0372",
+]
+
+[bans]
+multiple-versions = "allow"
+wildcards = "deny"
+
+[licenses]
+# Permissive licenses only. Anything else fails CI on purpose.
+allow = [
+  "MIT",
+  "Apache-2.0",
+  "Apache-2.0 WITH LLVM-exception",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "0BSD",
+  "ISC",
+  "Zlib",
+  "Unlicense",
+  "CC0-1.0",
+  "Unicode-3.0",
+  "BSL-1.0",
+  "MPL-2.0",
+  "NCSA",
+  "CDLA-Permissive-2.0",
+  # Bundled fonts: egui's default fonts (OFL + Ubuntu Font Licence) and the
+  # Noto fonts in src/gui/data. Both are free-to-redistribute font licences.
+  "OFL-1.1",
+  "LicenseRef-UFL-1.0",
+]
+confidence-threshold = 0.8
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

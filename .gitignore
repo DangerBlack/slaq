@@ -1,0 +1,37 @@
+# Build
+/target
+**/*.rs.bk
+
+# Credenziali. Il client le tiene in $XDG_CONFIG_HOME/slack-rs/, fuori dal
+# repo, ma se qualcuno ne lascia una copia qui non deve finire in un commit.
+credentials.json
+*.credentials
+.env
+.env.*
+*.pem
+*.key
+*.p12
+
+# Cache locale: contiene i messaggi del workspace.
+*.db
+*.db-wal
+*.db-shm
+cache.db*
+
+# Dump di sessione. Le offerte/risposte SDP contengono password ICE e
+# fingerprint DTLS: effimeri, ma non hanno motivo di stare in un repo.
+*.sdp
+/sdp/
+*_dump.gz
+netlog*.json
+
+# Editor e sistema
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+
+# egui_kittest snapshot artifacts (only the baseline .png is committed)
+tests/snapshots/*.new.png
+tests/snapshots/*.diff.png

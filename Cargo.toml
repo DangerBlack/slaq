@@ -1,0 +1,139 @@
+[package]
+name = "slaq"
+version = "0.9.0"
+edition = "2024"
+description = "A lightweight native client for Slack, with huddles"
+authors = ["Daniele Baschieri"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/DangerBlack/slaq"
+keywords = ["slack", "chat", "huddle", "egui"]
+categories = ["command-line-utilities"]
+
+[features]
+# La TUI è sempre presente. La GUI è opzionale: chi usa il client via SSH o
+# vuole la build più leggera compila senza, e non tira dentro né egui né uno
+# stack grafico.
+default = ["gui", "vp8"]
+gui = ["dep:eframe", "dep:egui", "dep:rfd", "dep:arboard", "video"]
+# Showing a screen someone else is sharing. Separate because it is the only
+# native dependency, and it costs a long first build.
+video = ["dep:rav1d"]
+# VP8, through libvpx: the codec our screen-share send uses, so it is on by
+# default. Building libvpx from source costs ~15 minutes the first time.
+vp8 = ["dep:shiguredo_libvpx"]
+# The mod host: loads and runs WASM components (see docs/mods/). Optional, so
+# the default build is unaffected until the host is ready.
+mods = ["dep:wasmtime"]
+
+[dependencies]
+# Mod host runtime (WebAssembly component model). Optional, behind `mods`.
+# Minimal feature set on purpose: no `wat` (so the text parser never sees
+# untrusted bytes), no profiler/cache/gc/demangle. `cranelift` is needed to
+# precompile and `deserialize` the component.
+wasmtime = { version = "49", optional = true, default-features = false, features = [
+    "anyhow",
+    "component-model",
+    "cranelift",
+    "runtime",
+    "std",
+] }
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json", "cookies", "gzip", "stream"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+futures-util = "0.3"
+futures = "0.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# A real OS store on every platform. keyring 3 enables **no backend** by
+# default and silently falls back to an in-memory mock, so every secret (mod
+# API keys, tokens saved there) vanished when slaq exited. Linux uses the
+# Secret Service over zbus (pure Rust, no libdbus; `async-io` so it works off
+# a tokio runtime too). Guarded by `keyring_store_persists`.
+keyring = { version = "3", features = ["apple-native", "windows-native", "async-secret-service", "async-io", "crypto-rust"] }
+webrtc = "0.12"
+rodio = "0.19"
+cpal = "0.15"
+# Cancellazione d'eco, soppressione del rumore e AGC: porting in Rust puro
+# del modulo audio di WebRTC. Nessuna dipendenza C++, quindi il binario resta
+# autosufficiente su qualunque macchina. `examples` porterebbe clap e cpal
+# suoi, che non servono.
+sonora = { version = "0.2", default-features = false }
+# VP8, for a shared screen. Built from source so the binary stays
+# self-contained; it needs nasm and the llvm-tools rustup component to build.
+shiguredo_libvpx = { version = "2026.1", features = ["source-build"], optional = true }
+# AV1, which is what Slack shares a screen in. Pure Rust: no C toolchain.
+rav1d = { version = "1.1", optional = true }
+# Immagini dagli appunti: egui espone solo il testo, e uno screenshot
+# incollato è metà delle conversazioni tecniche.
+arboard = { version = "3", default-features = false, features = ["image-data"], optional = true }
+opus = "0.3"
+screenshots = "0.6"
+image = "0.25"
+# MIT-SHM screen capture prototype. `xcb` is already pulled in by
+# `screenshots`; here it is a direct dependency with the `shm` extension
+# enabled, so the capture can write pixels straight into a shared segment
+# instead of shipping them over the X socket. `libc` is only used for
+# `shmget`/`shmat`/`shmdt`. Both are behind the same `vp8` gate as the
+# prototype module.
+xcb = { version = "1.7", features = ["shm"] }
+libc = "0.2"
+ratatui = "0.30"
+# `accesskit` is required for the UI snapshot tests to type check: egui_kittest
+# pulls `egui` with `accesskit`, and `egui-winit` (via eframe) must match it.
+eframe = { version = "0.30", optional = true, default-features = false, features = ["glow", "default_fonts", "x11", "wayland", "accesskit"] }
+egui = { version = "0.30", optional = true }
+rfd = { version = "0.15", optional = true, default-features = false, features = ["xdg-portal", "tokio"] }
+crossterm = "0.28"
+anyhow = "1"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+sha1 = "0.10"
+sha2 = "0.10"
+hmac = "0.12"
+pbkdf2 = "0.12"
+aes = "0.8"
+cbc = "0.1"
+rusqlite = { version = "0.32", features = ["bundled", "hooks", "limits"] }
+notify-rust = "4"
+prost = "0.13"
+bytes = "1"
+chrono = { version = "0.4.45", default-features = false, features = ["clock", "std"] }
+base64 = "0.23.1"
+rust-i18n = "4.2.4"
+
+[build-dependencies]
+prost-build = "0.13"
+protox = "0.7"
+
+[dev-dependencies]
+# Property tests for the parsers: they must never panic on arbitrary input
+# (a panic closes the client — the release build is `panic = "abort"`).
+proptest = "1"
+# UI regression snapshots (egui_kittest drives `Gui` headless and compares the
+# rendered image against `tests/snapshots/`).
+egui_kittest = { version = "0.30", features = ["snapshot", "wgpu"] }
+
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+# Turn a silent integer wrap into a loud panic. A wrapping length/offset is a
+# classic memory-safety bug carrier; failing closed is the safer default for a
+# client that parses untrusted input.
+overflow-checks = true
+
+[profile.dev]
+opt-level = 0
+
+# The capture loop and the RGBA to I420 conversion are hot enough that an
+# unoptimized debug build cannot hold 15 fps at 1080p, and the call runs on
+# that build. Optimising just this package keeps the call usable without
+# rebuilding every dependency.
+[profile.dev.package.slaq]
+opt-level = 2

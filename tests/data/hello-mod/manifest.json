@@ -1,0 +1,23 @@
+{
+  "manifestVersion": 0,
+  "id": "dev.slaq.hello",
+  "name": "Hello Mod",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "entry": { "type": "wasm", "path": "mod.wasm" },
+  "capabilities": {
+    "messages.read": { "scope": "all" },
+    "store.kv": { "maxBytes": 1048576 },
+    "ui.message_decoration": {},
+    "ui.view": {},
+    "ui.composer_action": {},
+    "ui.context_menu": {},
+    "ui.dialog": {}
+  },
+  "ui": {
+    "views": [{ "id": "console", "label": "Console" }],
+    "composerActions": [{ "id": "wrap", "label": "Wrap" }],
+    "contextMenu": [{ "id": "pin", "label": "Pin", "icon": "\ud83d\udccc" }]
+  },
+  "events": ["message.created", "message.updated", "reaction.added", "reaction.removed"]
+}

@@ -1,0 +1,12 @@
+# Files semgrep should not scan.
+# Generated code, vendored data and binaries produce noise, not findings.
+
+target/
+.git/
+Cargo.lock
+src/app/data/emoji.tsv
+src/gui/data/
+**/*.ttf
+**/*.png
+proto/*.proto
+locales/

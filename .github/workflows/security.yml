@@ -1,0 +1,158 @@
+# Security and quality gates. Runs on every push and pull request.
+#
+# Failure policy is deliberate:
+#   - real vulnerabilities, secrets or a denied licence  -> fail;
+#   - informational SAST findings (e.g. `unsafe` usage)   -> visible, not fatal.
+
+name: security
+
+on:
+  # Every push to main, every pull request (including from forks), and by hand.
+  # The same checks run locally with scripts/security-check.sh, which the
+  # pre-push hook calls, so most problems never reach this workflow.
+  push:
+    branches: [main]
+  workflow_dispatch:
+  pull_request:
+
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: build & test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          # shiguredo_libvpx's source build needs llvm-nm/llvm-objcopy.
+          components: llvm-tools
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev libx11-dev libgl1-mesa-dev libegl1-mesa-dev \
+            libssl-dev libasound2-dev nasm cmake pkg-config build-essential \
+            mesa-vulkan-drivers libvulkan1
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --locked --all-targets
+      - run: cargo test --locked
+      # The mod host is behind the optional `mods` feature. Exercise it in both
+      # shapes: GUI+mods (the combination the feature touches, incl. the render
+      # path and the worker integration test) and TUI+mods (headless unit tests).
+      - run: cargo check --locked --features mods
+      - run: cargo test --locked --features mods
+      - run: cargo test --locked --no-default-features --features mods
+
+  clippy:
+    name: clippy (correctness)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, llvm-tools
+      - name: System libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libxcb1-dev libx11-dev libgl1-mesa-dev libegl1-mesa-dev \
+            libssl-dev libasound2-dev nasm cmake pkg-config build-essential
+      - uses: Swatinem/rust-cache@v2
+      # Deny lints that signal a bug; style/pedantic lints stay warnings.
+      - run: cargo clippy --all-targets -- -D clippy::correctness -D clippy::suspicious
+      # The mod host is behind the optional feature: lint it under the same deny set.
+      - run: cargo clippy --locked --all-targets --no-default-features --features mods -- -D clippy::correctness -D clippy::suspicious
+
+  cargo-deny:
+    name: dependencies (advisories, licences, bans)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check
+
+  audit:
+    name: rustsec audit
+    runs-on: ubuntu-latest
+    # audit-check publishes a Check Run (and can open issues), which needs
+    # more than the read-only default.
+    permissions:
+      contents: read
+      checks: write
+      issues: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: rustsec/audit-check@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  gitleaks:
+    name: secrets
+    runs-on: ubuntu-latest
+    # gitleaks-action, on a pull_request, lists the PR's commits
+    # (`GET /pulls/N/commits`); with only `contents: read` that call is a 403.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_LICENSE: ${{ secrets.GITLEAKS_LICENSE }}
+
+  semgrep:
+    name: SAST (semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install semgrep
+      # Only ERROR-level findings fail the build; the INFO-level ones
+      # (documented `unsafe` usage, temp-dir hints) are reviewed, not fatal.
+      - run: |
+          semgrep scan \
+            --config p/rust \
+            --config p/secrets \
+            --config p/security-audit \
+            --severity ERROR --error --metrics=off
+
+  trivy:
+    name: SCA & misconfig (trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: CRITICAL,HIGH
+          exit-code: "1"
+          ignore-unfixed: true
+
+  sonar:
+    name: SonarCloud (optional)
+    runs-on: ubuntu-latest
+    # `vars` is allowed at job level, `secrets` is not. Enable Sonar by setting
+    # the repository variable SONAR_ENABLED=true (and the SONAR_TOKEN secret).
+    if: ${{ github.event_name != 'pull_request' && vars.SONAR_ENABLED == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: SonarSource/sonarcloud-github-action@master
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

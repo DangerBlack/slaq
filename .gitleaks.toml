@@ -1,0 +1,24 @@
+# gitleaks configuration — https://github.com/gitleaks/gitleaks
+#
+# Extends the default ruleset and adds only the exclusions this repository
+# genuinely needs. Keep this list small: a broad allowlist is how secrets get
+# missed.
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures and the token-detection hook, not real credentials"
+
+# The `login --browser` flow injects a JS hook whose *pattern string* contains
+# `xoxc-…`; it is code, not a token.
+regexes = [
+  '''xoxc-\[A-Za-z0-9_-\]\+''',
+  '''xoxc-test-token''',
+  '''xoxd-test-cookie-value''',
+  '''xoxc-nested''',
+]
+
+paths = [
+  '''(^|/)target/''',
+]

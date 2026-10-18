@@ -1,0 +1,290 @@
+<!doctype html>
+<html lang="it"><head><meta charset="utf-8"><title>slaq — palette dark</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:#05070b; color:#e9eef9;
+    font-family:"Inter","Noto Sans",system-ui,-apple-system,sans-serif; }
+  .page { padding:26px 26px 34px; }
+  h1 { font-size:26px; margin:0 0 2px; letter-spacing:-0.02em; }
+  .lead { color:#8b97ab; font-size:13.5px; margin:0 0 22px; max-width:1100px; line-height:1.5; }
+  .grid { display:grid; grid-template-columns:repeat(3, 1fr); gap:22px; align-items:start; }
+  .cand { border:1px solid #1a2130; border-radius:16px; padding:16px; background:#0a0d14; }
+  .chead { display:grid; grid-template-columns:auto 1fr auto; gap:12px; align-items:start; margin-bottom:14px; }
+  .ckey { width:30px;height:30px;border-radius:9px;background:#151b26;border:1px solid #26303f;
+    display:grid;place-items:center;font-weight:700;color:#c9d4e6; }
+  .chead h2 { font-size:16px; margin:0 0 4px; }
+  .chead p { font-size:11.5px; color:#8695ab; margin:0; line-height:1.45; white-space:pre-line; }
+  .acccard { display:flex;flex-direction:column;align-items:center;gap:5px;font-size:10px;color:#8695ab; }
+  .acccard span { width:34px;height:34px;border-radius:9px;background:var(--acc);display:block; }
+  .app { border:1px solid #1a2130; border-radius:12px; overflow:hidden; }
+  .topbar { background:var(--panel); border-bottom:1px solid var(--bsub); display:flex;
+    justify-content:space-between; align-items:center; padding:7px 11px; font-size:12px; }
+  .brand { font-weight:800; letter-spacing:-0.02em; }
+  .top-right { display:flex;align-items:center;gap:6px;color:var(--tm);font-size:10.5px; }
+  .dotmini { width:8px;height:8px;border-radius:50%; }
+  .gear { width:12px;height:12px;border-radius:50%;border:2px solid var(--tm);margin-left:8px; }
+  .cbody { display:grid; grid-template-columns:150px 1fr; min-height:322px; background:var(--bg); }
+  .side { background:var(--panel); border-right:1px solid var(--bsub); padding:8px 6px; font-size:11.5px; }
+  .ws { font-weight:700; padding:4px 6px 8px; }
+  .search { background:var(--elev); border:1px solid var(--bsub); color:var(--tm);
+    border-radius:7px; padding:4px 7px; margin-bottom:8px; font-size:10.5px; }
+  .lbl { color:var(--tm); font-size:9px; text-transform:uppercase; letter-spacing:0.08em;
+    padding:6px 6px 3px; }
+  .row { display:flex; align-items:center; gap:6px; padding:3.5px 7px; border-radius:7px; color:var(--ts); }
+  .row.active { background:var(--bg-selected,var(--sel)); color:var(--tp); font-weight:600; }
+  .row.unread { color:var(--tp); font-weight:700; }
+  .hash { color:var(--tm); }
+  .bdg { margin-left:auto; background:var(--ubg); color:var(--ufg); border-radius:9px;
+    padding:0 6px; font-size:9.5px; font-weight:800; line-height:15px; }
+  .bdg.mention { background:var(--mbg); color:var(--mfg); }
+  .pres { width:8px;height:8px;border-radius:50%; flex:0 0 8px; }
+  .pres.ring { background:transparent; border:1.6px solid var(--away); }
+  .chan { display:flex; flex-direction:column; background:var(--bg); }
+  .chanhead { padding:9px 12px 8px; border-bottom:1px solid var(--bsub); font-size:12.5px;
+    display:flex; gap:9px; align-items:baseline; }
+  .chanhead .sub { color:var(--tm); font-size:10px; }
+  .msgs { flex:1; padding:11px 12px; display:flex; flex-direction:column; gap:11px; }
+  .msg { display:grid; grid-template-columns:26px 1fr; gap:9px; }
+  .av { width:26px;height:26px;border-radius:7px;display:grid;place-items:center;
+    font-size:10px;font-weight:700; }
+  .meta { display:flex; gap:8px; align-items:baseline; }
+  .meta b { font-size:12px; color:var(--tp); }
+  .time { font-size:9.5px; color:var(--tm); }
+  .txt { font-size:12px; color:var(--ts); line-height:1.5; margin-top:1px; }
+  .lnk { color:var(--link); }
+  .men { background:var(--men); color:var(--menfg); border-radius:4px; padding:0 3px; font-weight:700; }
+  code { background:var(--elev); border:1px solid var(--bsub); border-radius:4px; padding:0 3px;
+    font-family:"Hack",monospace; font-size:10.5px; color:var(--tp); }
+  .warn { color:var(--warn); font-weight:600; }
+  .reacs { display:flex; gap:6px; margin-top:5px; }
+  .reac { background:var(--reac); border:1px solid var(--bstr); border-radius:9px;
+    padding:1px 7px; font-size:10px; color:var(--ts); }
+  .divider { display:flex; align-items:center; gap:8px; color:var(--dang); font-size:9.5px; font-weight:700; }
+  .divider::before,.divider::after { content:""; flex:1; border-top:1px solid var(--dang); opacity:.55; }
+  .thread { margin-top:5px; font-size:10.5px; color:var(--acc); font-weight:600; }
+  .thread .time { color:var(--tm); font-weight:400; }
+  .composer { border-top:1px solid var(--bsub); margin:0 12px 11px; background:var(--elev);
+    border:1px solid var(--bstr); border-radius:9px; padding:7px 9px; display:flex;
+    align-items:center; gap:8px; }
+  .ph { color:var(--tm); font-size:11.5px; flex:1; }
+  .cbtn { width:20px;height:20px;border-radius:6px;display:grid;place-items:center;
+    background:var(--hov); color:var(--ts); font-size:11px; }
+  .cbtn.acc { background:var(--acc); color:var(--accfg); font-weight:800; }
+  .swatches { display:grid; grid-template-columns:1fr 1fr; gap:3px 12px; margin:13px 0 11px; }
+  .sw { display:grid; grid-template-columns:15px 1fr auto; gap:6px; align-items:center;
+    font-size:9.5px; }
+  .chip { width:15px;height:15px;border-radius:4px;border:1px solid rgba(255,255,255,.12); }
+  .swk { color:var(--tm); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .swv { color:var(--ts); font-family:"Hack",monospace; font-size:9px; }
+  .ctrbox { border-top:1px solid #1a2130; padding-top:9px; }
+  .cttitle { font-size:9.5px; text-transform:uppercase; letter-spacing:.08em; color:#8695ab; margin-bottom:5px; }
+  .ctrow { display:flex; justify-content:space-between; align-items:center; font-size:10px; padding:1.5px 0; }
+  .ctl { color:#8695ab; }
+  .ctr { font-family:"Hack",monospace; font-size:9px; padding:1px 6px; border-radius:6px; }
+  .ctr.ok { background:rgba(63,185,80,.16); color:#5fd06f; }
+  .ctr.warn { background:rgba(217,164,65,.18); color:#e0b45c; }
+  .ctr.bad { background:rgba(229,83,75,.18); color:#f08a82; }
+</style></head>
+<body><div class="page">
+  <h1>slaq — identità dark, 3 candidate</h1>
+  <p class="lead">Ogni colonna è una possibile identità: stessa struttura, palette diversa. Sotto trovi i
+  ruoli semantici (non i singoli colori) e il contrasto WCAG misurato. Scegli una direzione e la
+  formalizzo in token + la applico alla GUI reale.</p>
+  <div class="grid">
+    <section class="cand" style="
+        --bg:#0B0E14; --panel:#090C12; --elev:#161B24;
+        --hov:#1C2230; --sel:#213156; --bsub:#202836;
+        --bstr:#2E3A4D; --tp:#E6EAF2; --ts:#9AA6B8;
+        --tm:#6B7686; --acc:#6E8BFF; --accfg:#08122B;
+        --link:#79B8FF; --ok:#3FB950; --warn:#D9A441; --dang:#E5534B;
+        --men:#E5B84B; --menfg:#1A1508;
+        --ubg:#E6EAF2; --ufg:#0B0E14;
+        --mbg:#E5534B; --mfg:#FFFFFF;
+        --act:#3FB950; --away:#6B7686; --quiet:#8C8CE0;
+        --reac:#1C2230">
+      <header class="chead">
+        <div class="ckey">A</div>
+        <div>
+          <h2>Slate + Signal Indigo</h2>
+          <p>Calm, corporate, familiar. Indigo reads “software / trust”,
+and keeps a clear distance from Slack’s aubergine-green.</p>
+        </div>
+        <div class="acccard"><span></span><b>#6E8BFF</b></div>
+      </header>
+
+      <div class="app">
+        <div class="topbar">
+          <span class="brand">slaq</span>
+          <span class="top-right"><span class="dotmini" style="background:var(--ok)"></span>online<span class="gear"></span></span>
+        </div>
+        <div class="cbody">
+          <aside class="side">
+            <div class="ws">DangerBlack ▾</div>
+            <div class="search">Cerca</div>
+            <div class="lbl">Canali</div>
+            <div class="row"><span class="hash">#</span> general</div>
+            <div class="row active"><span class="hash">#</span> design-system <span class="bdg mention">3</span></div>
+            <div class="row unread"><span class="hash">#</span> product <span class="bdg">12</span></div>
+            <div class="row"><span class="hash">#</span> random</div>
+            <div class="lbl">Messaggi diretti</div>
+            <div class="row"><span class="pres" style="background:var(--act)"></span> Anna Ferrari</div>
+            <div class="row"><span class="pres ring" style="--away:var(--away)"></span> Marco Rossi</div>
+            <div class="row"><span class="pres" style="background:var(--quiet)"></span> Giulia Bianchi</div>
+          </aside>
+          <main class="chan">
+            <div class="chanhead"><b># design-system</b><span class="sub">Palette e token di slaq</span></div>
+            <div class="msgs">
+              <div class="msg"><span class="av" style="background:var(--sel);color:var(--ts)">AF</span>
+                <div><div class="meta"><b>Anna Ferrari</b><span class="time">10:24</span></div>
+                <div class="txt">Bozza dark pronta, link di riferimento <span class="lnk">figma.com/slaq</span></div></div></div>
+              <div class="msg"><span class="av" style="background:var(--reac);color:var(--ts)">MR</span>
+                <div><div class="meta"><b>Marco Rossi</b><span class="time">10:26</span></div>
+                <div class="txt"><span class="men">@daniele</span> uso <code>--color-accent</code> per il focus e gli stati attivi, ok?</div>
+                <div class="reacs"><span class="reac">👍 2</span><span class="reac">🎨 1</span></div></div></div>
+              <div class="divider"><span>nuovi messaggi</span></div>
+              <div class="msg"><span class="av" style="background:var(--hov);color:var(--ts)">GB</span>
+                <div><div class="meta"><b>Giulia Bianchi</b><span class="time">10:31</span></div>
+                <div class="txt">Contrasto verificato, e i badge non sono più <span class="warn">ambigui</span>.</div>
+                <div class="thread">↳ 3 risposte <span class="time">ultima 10:29</span></div></div></div>
+            </div>
+            <div class="composer"><span class="ph">Scrivi a #design-system…</span>
+              <span class="cbtn">＋</span><span class="cbtn acc">➤</span></div>
+          </main>
+        </div>
+      </div>
+
+      <div class="swatches"><div class="sw"><span class="chip" style="background:#0B0E14"></span><span class="swk">bg_base</span><span class="swv">#0B0E14</span></div><div class="sw"><span class="chip" style="background:#090C12"></span><span class="swk">bg_panel</span><span class="swv">#090C12</span></div><div class="sw"><span class="chip" style="background:#161B24"></span><span class="swk">bg_elevated</span><span class="swv">#161B24</span></div><div class="sw"><span class="chip" style="background:#1C2230"></span><span class="swk">bg_hover</span><span class="swv">#1C2230</span></div><div class="sw"><span class="chip" style="background:#213156"></span><span class="swk">bg_selected</span><span class="swv">#213156</span></div><div class="sw"><span class="chip" style="background:#202836"></span><span class="swk">border_subtle</span><span class="swv">#202836</span></div><div class="sw"><span class="chip" style="background:#2E3A4D"></span><span class="swk">border_strong</span><span class="swv">#2E3A4D</span></div><div class="sw"><span class="chip" style="background:#E6EAF2"></span><span class="swk">text_primary</span><span class="swv">#E6EAF2</span></div><div class="sw"><span class="chip" style="background:#9AA6B8"></span><span class="swk">text_secondary</span><span class="swv">#9AA6B8</span></div><div class="sw"><span class="chip" style="background:#6B7686"></span><span class="swk">text_muted</span><span class="swv">#6B7686</span></div><div class="sw"><span class="chip" style="background:#6E8BFF"></span><span class="swk">accent</span><span class="swv">#6E8BFF</span></div><div class="sw"><span class="chip" style="background:#79B8FF"></span><span class="swk">link</span><span class="swv">#79B8FF</span></div><div class="sw"><span class="chip" style="background:#3FB950"></span><span class="swk">success</span><span class="swv">#3FB950</span></div><div class="sw"><span class="chip" style="background:#D9A441"></span><span class="swk">warning</span><span class="swv">#D9A441</span></div><div class="sw"><span class="chip" style="background:#E5534B"></span><span class="swk">danger</span><span class="swv">#E5534B</span></div><div class="sw"><span class="chip" style="background:#E5B84B"></span><span class="swk">mention_self_bg</span><span class="swv">#E5B84B</span></div><div class="sw"><span class="chip" style="background:#E6EAF2"></span><span class="swk">badge_unread_bg</span><span class="swv">#E6EAF2</span></div><div class="sw"><span class="chip" style="background:#E5534B"></span><span class="swk">badge_mention_bg</span><span class="swv">#E5534B</span></div><div class="sw"><span class="chip" style="background:#3FB950"></span><span class="swk">presence_active</span><span class="swv">#3FB950</span></div><div class="sw"><span class="chip" style="background:#8C8CE0"></span><span class="swk">presence_quiet</span><span class="swv">#8C8CE0</span></div></div>
+      <div class="ctrbox"><div class="cttitle">Contrasto WCAG (calcolato)</div><div class="ctrow"><span class="ctl">body on base</span><span class="ctr ok">16.02 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">secondary on base</span><span class="ctr ok">7.84 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">muted on base</span><span class="ctr warn">4.20 · FAIL (min 4.5)</span></div><div class="ctrow"><span class="ctl">body on elevated</span><span class="ctr ok">14.32 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">on accent</span><span class="ctr ok">6.01 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">link on base</span><span class="ctr ok">9.30 · PASS (min 3)</span></div><div class="ctrow"><span class="ctl">mention fg/bg</span><span class="ctr ok">9.78 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">unread badge</span><span class="ctr ok">16.02 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">mention badge</span><span class="ctr bad">3.70 · FAIL (min 4.5)</span></div></div>
+    </section>
+    <section class="cand" style="
+        --bg:#101312; --panel:#0B0E0D; --elev:#1A1E1D;
+        --hov:#242A28; --sel:#153B37; --bsub:#242A28;
+        --bstr:#333B38; --tp:#E8ECEA; --ts:#9BA8A3;
+        --tm:#6E7B76; --acc:#2FB6A3; --accfg:#04201C;
+        --link:#5FA8E0; --ok:#57C46E; --warn:#D8A24A; --dang:#E5605A;
+        --men:#E5B84B; --menfg:#1A1508;
+        --ubg:#E8ECEA; --ufg:#101312;
+        --mbg:#E5605A; --mfg:#FFFFFF;
+        --act:#57C46E; --away:#6E7B76; --quiet:#8FA0E0;
+        --reac:#242A28">
+      <header class="chead">
+        <div class="ckey">B</div>
+        <div>
+          <h2>Graphite + Teal</h2>
+          <p>Productivity-tool calm. A cool teal accent on warm graphite
+is distinctive without shouting; reads “measured, operational”.</p>
+        </div>
+        <div class="acccard"><span></span><b>#2FB6A3</b></div>
+      </header>
+
+      <div class="app">
+        <div class="topbar">
+          <span class="brand">slaq</span>
+          <span class="top-right"><span class="dotmini" style="background:var(--ok)"></span>online<span class="gear"></span></span>
+        </div>
+        <div class="cbody">
+          <aside class="side">
+            <div class="ws">DangerBlack ▾</div>
+            <div class="search">Cerca</div>
+            <div class="lbl">Canali</div>
+            <div class="row"><span class="hash">#</span> general</div>
+            <div class="row active"><span class="hash">#</span> design-system <span class="bdg mention">3</span></div>
+            <div class="row unread"><span class="hash">#</span> product <span class="bdg">12</span></div>
+            <div class="row"><span class="hash">#</span> random</div>
+            <div class="lbl">Messaggi diretti</div>
+            <div class="row"><span class="pres" style="background:var(--act)"></span> Anna Ferrari</div>
+            <div class="row"><span class="pres ring" style="--away:var(--away)"></span> Marco Rossi</div>
+            <div class="row"><span class="pres" style="background:var(--quiet)"></span> Giulia Bianchi</div>
+          </aside>
+          <main class="chan">
+            <div class="chanhead"><b># design-system</b><span class="sub">Palette e token di slaq</span></div>
+            <div class="msgs">
+              <div class="msg"><span class="av" style="background:var(--sel);color:var(--ts)">AF</span>
+                <div><div class="meta"><b>Anna Ferrari</b><span class="time">10:24</span></div>
+                <div class="txt">Bozza dark pronta, link di riferimento <span class="lnk">figma.com/slaq</span></div></div></div>
+              <div class="msg"><span class="av" style="background:var(--reac);color:var(--ts)">MR</span>
+                <div><div class="meta"><b>Marco Rossi</b><span class="time">10:26</span></div>
+                <div class="txt"><span class="men">@daniele</span> uso <code>--color-accent</code> per il focus e gli stati attivi, ok?</div>
+                <div class="reacs"><span class="reac">👍 2</span><span class="reac">🎨 1</span></div></div></div>
+              <div class="divider"><span>nuovi messaggi</span></div>
+              <div class="msg"><span class="av" style="background:var(--hov);color:var(--ts)">GB</span>
+                <div><div class="meta"><b>Giulia Bianchi</b><span class="time">10:31</span></div>
+                <div class="txt">Contrasto verificato, e i badge non sono più <span class="warn">ambigui</span>.</div>
+                <div class="thread">↳ 3 risposte <span class="time">ultima 10:29</span></div></div></div>
+            </div>
+            <div class="composer"><span class="ph">Scrivi a #design-system…</span>
+              <span class="cbtn">＋</span><span class="cbtn acc">➤</span></div>
+          </main>
+        </div>
+      </div>
+
+      <div class="swatches"><div class="sw"><span class="chip" style="background:#101312"></span><span class="swk">bg_base</span><span class="swv">#101312</span></div><div class="sw"><span class="chip" style="background:#0B0E0D"></span><span class="swk">bg_panel</span><span class="swv">#0B0E0D</span></div><div class="sw"><span class="chip" style="background:#1A1E1D"></span><span class="swk">bg_elevated</span><span class="swv">#1A1E1D</span></div><div class="sw"><span class="chip" style="background:#242A28"></span><span class="swk">bg_hover</span><span class="swv">#242A28</span></div><div class="sw"><span class="chip" style="background:#153B37"></span><span class="swk">bg_selected</span><span class="swv">#153B37</span></div><div class="sw"><span class="chip" style="background:#242A28"></span><span class="swk">border_subtle</span><span class="swv">#242A28</span></div><div class="sw"><span class="chip" style="background:#333B38"></span><span class="swk">border_strong</span><span class="swv">#333B38</span></div><div class="sw"><span class="chip" style="background:#E8ECEA"></span><span class="swk">text_primary</span><span class="swv">#E8ECEA</span></div><div class="sw"><span class="chip" style="background:#9BA8A3"></span><span class="swk">text_secondary</span><span class="swv">#9BA8A3</span></div><div class="sw"><span class="chip" style="background:#6E7B76"></span><span class="swk">text_muted</span><span class="swv">#6E7B76</span></div><div class="sw"><span class="chip" style="background:#2FB6A3"></span><span class="swk">accent</span><span class="swv">#2FB6A3</span></div><div class="sw"><span class="chip" style="background:#5FA8E0"></span><span class="swk">link</span><span class="swv">#5FA8E0</span></div><div class="sw"><span class="chip" style="background:#57C46E"></span><span class="swk">success</span><span class="swv">#57C46E</span></div><div class="sw"><span class="chip" style="background:#D8A24A"></span><span class="swk">warning</span><span class="swv">#D8A24A</span></div><div class="sw"><span class="chip" style="background:#E5605A"></span><span class="swk">danger</span><span class="swv">#E5605A</span></div><div class="sw"><span class="chip" style="background:#E5B84B"></span><span class="swk">mention_self_bg</span><span class="swv">#E5B84B</span></div><div class="sw"><span class="chip" style="background:#E8ECEA"></span><span class="swk">badge_unread_bg</span><span class="swv">#E8ECEA</span></div><div class="sw"><span class="chip" style="background:#E5605A"></span><span class="swk">badge_mention_bg</span><span class="swv">#E5605A</span></div><div class="sw"><span class="chip" style="background:#57C46E"></span><span class="swk">presence_active</span><span class="swv">#57C46E</span></div><div class="sw"><span class="chip" style="background:#8FA0E0"></span><span class="swk">presence_quiet</span><span class="swv">#8FA0E0</span></div></div>
+      <div class="ctrbox"><div class="cttitle">Contrasto WCAG (calcolato)</div><div class="ctrow"><span class="ctl">body on base</span><span class="ctr ok">15.68 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">secondary on base</span><span class="ctr ok">7.58 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">muted on base</span><span class="ctr warn">4.23 · FAIL (min 4.5)</span></div><div class="ctrow"><span class="ctl">body on elevated</span><span class="ctr ok">14.12 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">on accent</span><span class="ctr ok">6.79 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">link on base</span><span class="ctr ok">7.26 · PASS (min 3)</span></div><div class="ctrow"><span class="ctl">mention fg/bg</span><span class="ctr ok">9.78 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">unread badge</span><span class="ctr ok">15.68 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">mention badge</span><span class="ctr bad">3.41 · FAIL (min 4.5)</span></div></div>
+    </section>
+    <section class="cand" style="
+        --bg:#0B1222; --panel:#070C17; --elev:#14203A;
+        --hov:#1B2A48; --sel:#263B66; --bsub:#1B2740;
+        --bstr:#2C3B5C; --tp:#E9EEF9; --ts:#9DAAC6;
+        --tm:#6E7B99; --acc:#E0A030; --accfg:#1A1200;
+        --link:#7FB3FF; --ok:#3FBF7F; --warn:#E8743B; --dang:#E5534B;
+        --men:#E0A030; --menfg:#1A1200;
+        --ubg:#E9EEF9; --ufg:#0B1222;
+        --mbg:#E5534B; --mfg:#FFFFFF;
+        --act:#3FBF7F; --away:#6E7B99; --quiet:#8C8CE0;
+        --reac:#1B2A48">
+      <header class="chead">
+        <div class="ckey">C</div>
+        <div>
+          <h2>Navy + Amber</h2>
+          <p>Warm and unmistakably ours. Deep navy with a gold accent is
+rare in chat clients; the boldest of the three.</p>
+        </div>
+        <div class="acccard"><span></span><b>#E0A030</b></div>
+      </header>
+
+      <div class="app">
+        <div class="topbar">
+          <span class="brand">slaq</span>
+          <span class="top-right"><span class="dotmini" style="background:var(--ok)"></span>online<span class="gear"></span></span>
+        </div>
+        <div class="cbody">
+          <aside class="side">
+            <div class="ws">DangerBlack ▾</div>
+            <div class="search">Cerca</div>
+            <div class="lbl">Canali</div>
+            <div class="row"><span class="hash">#</span> general</div>
+            <div class="row active"><span class="hash">#</span> design-system <span class="bdg mention">3</span></div>
+            <div class="row unread"><span class="hash">#</span> product <span class="bdg">12</span></div>
+            <div class="row"><span class="hash">#</span> random</div>
+            <div class="lbl">Messaggi diretti</div>
+            <div class="row"><span class="pres" style="background:var(--act)"></span> Anna Ferrari</div>
+            <div class="row"><span class="pres ring" style="--away:var(--away)"></span> Marco Rossi</div>
+            <div class="row"><span class="pres" style="background:var(--quiet)"></span> Giulia Bianchi</div>
+          </aside>
+          <main class="chan">
+            <div class="chanhead"><b># design-system</b><span class="sub">Palette e token di slaq</span></div>
+            <div class="msgs">
+              <div class="msg"><span class="av" style="background:var(--sel);color:var(--ts)">AF</span>
+                <div><div class="meta"><b>Anna Ferrari</b><span class="time">10:24</span></div>
+                <div class="txt">Bozza dark pronta, link di riferimento <span class="lnk">figma.com/slaq</span></div></div></div>
+              <div class="msg"><span class="av" style="background:var(--reac);color:var(--ts)">MR</span>
+                <div><div class="meta"><b>Marco Rossi</b><span class="time">10:26</span></div>
+                <div class="txt"><span class="men">@daniele</span> uso <code>--color-accent</code> per il focus e gli stati attivi, ok?</div>
+                <div class="reacs"><span class="reac">👍 2</span><span class="reac">🎨 1</span></div></div></div>
+              <div class="divider"><span>nuovi messaggi</span></div>
+              <div class="msg"><span class="av" style="background:var(--hov);color:var(--ts)">GB</span>
+                <div><div class="meta"><b>Giulia Bianchi</b><span class="time">10:31</span></div>
+                <div class="txt">Contrasto verificato, e i badge non sono più <span class="warn">ambigui</span>.</div>
+                <div class="thread">↳ 3 risposte <span class="time">ultima 10:29</span></div></div></div>
+            </div>
+            <div class="composer"><span class="ph">Scrivi a #design-system…</span>
+              <span class="cbtn">＋</span><span class="cbtn acc">➤</span></div>
+          </main>
+        </div>
+      </div>
+
+      <div class="swatches"><div class="sw"><span class="chip" style="background:#0B1222"></span><span class="swk">bg_base</span><span class="swv">#0B1222</span></div><div class="sw"><span class="chip" style="background:#070C17"></span><span class="swk">bg_panel</span><span class="swv">#070C17</span></div><div class="sw"><span class="chip" style="background:#14203A"></span><span class="swk">bg_elevated</span><span class="swv">#14203A</span></div><div class="sw"><span class="chip" style="background:#1B2A48"></span><span class="swk">bg_hover</span><span class="swv">#1B2A48</span></div><div class="sw"><span class="chip" style="background:#263B66"></span><span class="swk">bg_selected</span><span class="swv">#263B66</span></div><div class="sw"><span class="chip" style="background:#1B2740"></span><span class="swk">border_subtle</span><span class="swv">#1B2740</span></div><div class="sw"><span class="chip" style="background:#2C3B5C"></span><span class="swk">border_strong</span><span class="swv">#2C3B5C</span></div><div class="sw"><span class="chip" style="background:#E9EEF9"></span><span class="swk">text_primary</span><span class="swv">#E9EEF9</span></div><div class="sw"><span class="chip" style="background:#9DAAC6"></span><span class="swk">text_secondary</span><span class="swv">#9DAAC6</span></div><div class="sw"><span class="chip" style="background:#6E7B99"></span><span class="swk">text_muted</span><span class="swv">#6E7B99</span></div><div class="sw"><span class="chip" style="background:#E0A030"></span><span class="swk">accent</span><span class="swv">#E0A030</span></div><div class="sw"><span class="chip" style="background:#7FB3FF"></span><span class="swk">link</span><span class="swv">#7FB3FF</span></div><div class="sw"><span class="chip" style="background:#3FBF7F"></span><span class="swk">success</span><span class="swv">#3FBF7F</span></div><div class="sw"><span class="chip" style="background:#E8743B"></span><span class="swk">warning</span><span class="swv">#E8743B</span></div><div class="sw"><span class="chip" style="background:#E5534B"></span><span class="swk">danger</span><span class="swv">#E5534B</span></div><div class="sw"><span class="chip" style="background:#E0A030"></span><span class="swk">mention_self_bg</span><span class="swv">#E0A030</span></div><div class="sw"><span class="chip" style="background:#E9EEF9"></span><span class="swk">badge_unread_bg</span><span class="swv">#E9EEF9</span></div><div class="sw"><span class="chip" style="background:#E5534B"></span><span class="swk">badge_mention_bg</span><span class="swv">#E5534B</span></div><div class="sw"><span class="chip" style="background:#3FBF7F"></span><span class="swk">presence_active</span><span class="swv">#3FBF7F</span></div><div class="sw"><span class="chip" style="background:#8C8CE0"></span><span class="swk">presence_quiet</span><span class="swv">#8C8CE0</span></div></div>
+      <div class="ctrbox"><div class="cttitle">Contrasto WCAG (calcolato)</div><div class="ctrow"><span class="ctl">body on base</span><span class="ctr ok">16.07 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">secondary on base</span><span class="ctr ok">8.01 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">muted on base</span><span class="ctr warn">4.41 · FAIL (min 4.5)</span></div><div class="ctrow"><span class="ctl">body on elevated</span><span class="ctr ok">13.92 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">on accent</span><span class="ctr ok">8.17 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">link on base</span><span class="ctr ok">8.72 · PASS (min 3)</span></div><div class="ctrow"><span class="ctl">mention fg/bg</span><span class="ctr ok">8.17 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">unread badge</span><span class="ctr ok">16.07 · PASS (min 4.5)</span></div><div class="ctrow"><span class="ctl">mention badge</span><span class="ctr bad">3.70 · FAIL (min 4.5)</span></div></div>
+    </section></div>
+</div></body></html>

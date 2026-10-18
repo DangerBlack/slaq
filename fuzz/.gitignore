@@ -1,0 +1,7 @@
+target
+artifacts
+coverage
+# The working corpus is not committed: a single run adds thousands of files.
+# The classic bad inputs are covered by the `naughty_strings_never_panic` test
+# in `src/main.rs` instead.
+corpus

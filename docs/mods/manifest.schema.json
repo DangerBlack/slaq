@@ -1,0 +1,383 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://slaq.dev/schemas/mod-manifest-v0.json",
+  "title": "slaq mod manifest (v0)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["manifestVersion", "id", "name", "version", "apiVersion", "entry", "capabilities"],
+  "properties": {
+    "manifestVersion": { "const": 0 },
+    "id": {
+      "type": "string",
+      "maxLength": 255,
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$",
+      "description": "Reverse-DNS, unique. Every dotted label starts and ends with an alphanumeric."
+    },
+    "name": { "type": "string", "minLength": 1 },
+    "version": { "type": "string", "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$" },
+    "apiVersion": { "type": "string", "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)$" },
+    "minSlaq": { "type": "string", "pattern": "^(0|[1-9]\\d*)\\.(0|[1-9]\\d*)\\.(0|[1-9]\\d*)(?:-((?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*)(?:\\.(?:0|[1-9]\\d*|\\d*[a-zA-Z-][0-9a-zA-Z-]*))*))?(?:\\+([0-9a-zA-Z-]+(?:\\.[0-9a-zA-Z-]+)*))?$" },
+    "description": { "type": "string" },
+    "author": { "type": "string" },
+    "homepage": { "type": "string", "format": "uri" },
+    "license": { "type": "string" },
+    "entry": { "$ref": "#/$defs/entry" },
+    "locales": {
+      "type": "array",
+      "items": { "type": "string" },
+      "uniqueItems": true
+    },
+    "capabilities": { "$ref": "#/$defs/capabilities" },
+    "events": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/event" },
+      "uniqueItems": true
+    },
+    "ui": { "$ref": "#/$defs/ui" },
+    "settings": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/setting" },
+      "description": "Setting keys must be unique; standard JSON Schema cannot express uniqueness by property, so the host rejects duplicates at load time."
+    },
+    "commands": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/command" },
+      "description": "Command names must be unique; the host rejects duplicates at load time."
+    }
+  },
+
+  "allOf": [
+    {
+      "if": { "required": ["ui"], "properties": { "ui": { "required": ["messageActions"] } } },
+      "then": { "required": ["capabilities"], "properties": { "capabilities": { "required": ["ui.message_action"] } } },
+      "description": "Declaring messageActions requires the ui.message_action capability."
+    },
+    {
+      "if": { "required": ["ui"], "properties": { "ui": { "required": ["contextMenu"] } } },
+      "then": { "required": ["capabilities"], "properties": { "capabilities": { "required": ["ui.context_menu"] } } },
+      "description": "Declaring contextMenu requires the ui.context_menu capability."
+    },
+    {
+      "if": { "required": ["commands"], "properties": { "commands": { "minItems": 1 } } },
+      "then": { "required": ["capabilities"], "properties": { "capabilities": { "required": ["commands.slash"] } } },
+      "description": "Declaring slash commands requires the commands.slash capability."
+    },
+    {
+      "if": { "required": ["ui"], "properties": { "ui": { "required": ["composerActions"] } } },
+      "then": { "required": ["capabilities"], "properties": { "capabilities": { "required": ["ui.composer_action", "messages.read"] } } },
+      "description": "Declaring composerActions requires the ui.composer_action capability and messages.read (the read scope bounds the draft it acts on)."
+    },
+    {
+      "if": { "required": ["ui"], "properties": { "ui": { "required": ["views"] } } },
+      "then": { "required": ["capabilities"], "properties": { "capabilities": { "required": ["ui.view"] } } },
+      "description": "Declaring views requires the ui.view capability."
+    },
+    {
+      "if": { "required": ["ui"], "properties": { "ui": { "required": ["theme"] } } },
+      "then": { "required": ["capabilities"], "properties": { "capabilities": { "required": ["ui.theme"] } } },
+      "description": "Declaring ui.theme requires the ui.theme capability."
+    },
+    {
+      "if": { "required": ["settings"], "properties": { "settings": { "minItems": 1 } } },
+      "then": { "required": ["capabilities"], "properties": { "capabilities": { "required": ["ui.settings"] } } },
+      "description": "A non-empty settings array requires the ui.settings capability (the tab that renders it)."
+    }
+  ],
+
+  "$defs": {
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "path"],
+      "properties": {
+        "type": { "const": "wasm" },
+        "path": {
+          "type": "string",
+          "pattern": "^(?!/)(?!.*\\.\\.)[A-Za-z0-9._/-]+\\.wasm$",
+          "description": "Package-relative path to a .wasm component; no absolute path and no `..`. The host canonicalizes it (symlinks included) beneath the package folder before opening."
+        },
+        "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      }
+    },
+
+    "event": {
+      "enum": [
+        "message.created", "message.updated", "message.deleted",
+        "reaction.added", "reaction.removed",
+        "channel.opened", "channel.updated", "channel.member_joined",
+        "background.tick"
+      ]
+    },
+
+    "read_scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope"],
+          "properties": { "scope": { "const": "all" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["scope", "channels"],
+          "properties": {
+            "scope": { "const": "channels" },
+            "channels": {
+              "type": "array",
+              "minItems": 1,
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          }
+        }
+      ]
+    },
+
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "messages.read": { "$ref": "#/$defs/read_scope" },
+        "channels.list": { "$ref": "#/$defs/empty" },
+        "users.list": { "$ref": "#/$defs/empty" },
+        "search.read": { "$ref": "#/$defs/empty" },
+
+        "chat.send": { "$ref": "#/$defs/empty" },
+        "reactions.write": { "$ref": "#/$defs/empty" },
+        "chat.forward": { "$ref": "#/$defs/empty" },
+        "files.upload": { "$ref": "#/$defs/empty" },
+        "files.download": { "$ref": "#/$defs/empty" },
+
+        "net.egress": {
+          "type": "array",
+          "minItems": 0,
+          "maxItems": 64,
+          "items": {
+            "type": "string",
+            "maxLength": 260,
+            "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)*(:(?:[1-9][0-9]{0,3}|[1-5][0-9]{4}|6[0-4][0-9]{3}|65[0-4][0-9]{2}|655[0-2][0-9]|6553[0-5]))?$"
+          },
+          "uniqueItems": true,
+          "description": "Allowed hosts, canonical lower-case `host` or `host:port` (no scheme, path, wildcard or userinfo). The host normalizes and compares canonical forms, and redirects must not widen the boundary. The list is the default the user is offered: they may untick hosts and add their own in the app or with `slaq mods egress`, so `[]` means \"the user picks\"."
+        },
+
+        "store.kv": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxBytes"],
+          "properties": { "maxBytes": { "type": "integer", "minimum": 0 } }
+        },
+        "store.vector": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["dim", "maxVectors", "maxBytes"],
+          "properties": {
+            "dim": { "type": "integer", "minimum": 1 },
+            "maxVectors": { "type": "integer", "minimum": 1 },
+            "maxBytes": { "type": "integer", "minimum": 1 }
+          },
+          "description": "Aggregate byte cap on stored vectors and their metadata; bounds disk use independently of the vector count."
+        },
+        "store.sql": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["maxBytes", "maxResultRows"],
+          "properties": {
+            "maxBytes": { "type": "integer", "minimum": 1 },
+            "maxResultRows": { "type": "integer", "minimum": 1 }
+          },
+          "description": "Private DB only. `maxBytes` is the file quota; `maxResultRows` caps rows returned per result (not persisted rows). Hardening preconditions apply (see manifest-v0.md)."
+        },
+
+        "filesystem": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["slots"],
+          "properties": {
+            "slots": {
+              "type": "array",
+              "minItems": 1,
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "access"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32,
+                    "pattern": "^[a-z0-9]([a-z0-9_-]*[a-z0-9])?$"
+                  },
+                  "access": { "enum": ["read", "write"] }
+                }
+              },
+              "description": "Slot names must be unique; the host rejects duplicates at load time."
+            }
+          },
+          "description": "Named slots the **user** maps to real directories. The host performs all disk I/O and contains every access (no `..`, no absolute path, no symlink escape into or out of the slot, and slaq's own config/data dirs are denied); the guest never sees a path. High risk, and exfiltration combined with net.egress."
+        },
+
+        "ui.message_action": { "$ref": "#/$defs/empty" },
+        "ui.message_decoration": { "$ref": "#/$defs/empty" },
+        "ui.context_menu": { "$ref": "#/$defs/empty" },
+        "ui.view": { "$ref": "#/$defs/empty" },
+        "ui.settings": { "$ref": "#/$defs/empty" },
+        "ui.dialog": { "$ref": "#/$defs/empty" },
+        "ui.composer_action": { "$ref": "#/$defs/empty" },
+        "ui.theme": { "$ref": "#/$defs/empty" },
+        "notify": { "$ref": "#/$defs/empty" },
+
+        "commands.slash": { "$ref": "#/$defs/empty" },
+
+        "background": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "intervalSecs": { "type": "number", "minimum": 0.1 }
+          },
+          "description": "The background lane: with `background.tick` in `events`, the host wakes the mod via `on-event(\"background.tick\", \"\")` on its own worker thread every `intervalSecs` (default 60; fixed delay). Requires the user's grant."
+        }
+      }
+    },
+
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "messageActions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "icon": { "type": "string" }
+            }
+          },
+          "description": "Action ids are routing keys and must be unique within this array; the host rejects duplicates at load time."
+        },
+        "contextMenu": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "icon": { "type": "string" }
+            }
+          },
+          "description": "Context-menu ids are routing keys and must be unique within this array; the host rejects duplicates at load time."
+        },
+        "composerActions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "icon": { "type": "string" }
+            }
+          },
+          "description": "Composer action ids must be unique; requires ui.composer_action and messages.read (the read scope bounds the draft)."
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "label"],
+            "properties": {
+              "id": { "type": "string" },
+              "label": { "type": "string" },
+              "icon": { "type": "string" }
+            }
+          },
+          "description": "View ids must be unique; requires ui.view."
+        },
+        "theme": {
+          "type": "object",
+          "propertyNames": { "pattern": "^[a-z][a-z0-9_]*$" },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^#?[0-9a-fA-F]{6}$"
+          },
+          "description": "Role -> #rrggbb colour overrides; requires ui.theme. Unknown roles and malformed values are ignored by the host (lenient); a theme that makes the app unreadable is the user's to remove."
+        }
+      }
+    },
+
+    "setting": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["key", "type"],
+      "properties": {
+        "key": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "type": { "enum": ["string", "number", "bool", "enum", "url", "secret"] },
+        "label": { "type": "string" },
+        "help": { "type": "string" },
+        "default": {},
+        "values": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "string" },
+          "description": "Allowed values when type is `enum`; at least one, no duplicates."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "enum" } }, "required": ["type"] },
+          "then": { "required": ["values"] }
+        },
+        {
+          "if": { "properties": { "type": { "const": "secret" } }, "required": ["type"] },
+          "then": { "not": { "required": ["default"] } },
+          "description": "A secret must not carry a manifest-supplied default: credentials must not be distributable."
+        },
+        {
+          "if": { "properties": { "type": { "const": "number" } }, "required": ["type"] },
+          "then": { "properties": { "default": { "type": "number" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "bool" } }, "required": ["type"] },
+          "then": { "properties": { "default": { "type": "boolean" } } }
+        },
+        {
+          "if": { "properties": { "type": { "enum": ["string", "enum"] } }, "required": ["type"] },
+          "then": { "properties": { "default": { "type": "string" } } },
+          "description": "For `enum`, default membership is enforced by the host at load time."
+        },
+        {
+          "if": { "properties": { "type": { "const": "url" } }, "required": ["type"] },
+          "then": { "properties": { "default": { "type": "string", "format": "uri", "pattern": "^[a-zA-Z][a-zA-Z0-9+.-]*:" } } },
+          "description": "A url default must be a URI with a scheme (the host validator must enable format assertion)."
+        }
+      ]
+    },
+
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "properties": {
+        "name": { "type": "string", "pattern": "^[a-z0-9][a-z0-9_-]*$" },
+        "label": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+
+    "empty": {
+      "type": "object",
+      "additionalProperties": false,
+      "maxProperties": 0
+    }
+  }
+}

@@ -1,0 +1,13 @@
+# cargo-audit configuration (RUSTSEC).
+#
+# Kept in sync with `deny.toml`, which carries the same ignores with their
+# reasons. Only add an entry with a written justification.
+
+[advisories]
+ignore = [
+    # `quick-xml` 0.30 via `zbus_xml` (the `accesskit` accessibility stack).
+    # No upgrade path in that graph; the input is the local AT-SPI D-Bus
+    # introspection XML, never message content.
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+]

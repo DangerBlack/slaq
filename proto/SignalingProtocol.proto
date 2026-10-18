@@ -1,0 +1,584 @@
+// RICOSTRUITO da SignalingProtocol.js (amazon-chime-sdk-js, Apache-2.0).
+// Il repo upstream versiona solo il codice generato, non lo schema.
+// Generato da reconstruct.py — non modificare a mano.
+
+syntax = "proto2";
+
+enum SdkJoinFlags {
+  HAS_STREAM_UPDATE = 2;
+  COMPLETE_VIDEO_SOURCES_LIST = 16;
+  EXCLUDE_SELF_CONTENT_IN_INDEX = 32;
+}
+
+enum SdkServerSideNetworkAdaption {
+  DEFAULT = 1;
+  NONE = 2;
+  BANDWIDTH_PROBING = 3;
+  BANDWIDTH_PROBING_AND_VIDEO_QUALITY_ADAPTION = 4;
+}
+
+enum SdkStreamServiceType {
+  RX = 1;
+  TX = 2;
+  DUPLEX = 3;
+}
+
+enum SdkStreamMediaType {
+  AUDIO = 1;
+  VIDEO = 2;
+}
+
+enum SdkPingPongType {
+  PING = 1;
+  PONG = 2;
+}
+
+enum SdkVideoQualityAdaptationPreference {
+  BALANCED = 1;
+  MAINTAIN_FRAMERATE = 2;
+  MAINTAIN_RESOLUTION = 3;
+}
+
+enum SdkVideoCodecCapability {
+  VP8 = 1;
+  H264_BASELINE_PROFILE = 2;
+  H264_CONSTRAINED_BASELINE_PROFILE = 3;
+  H264_MAIN_PROFILE = 4;
+  H264_HIGH_PROFILE = 5;
+  H264_CONSTRAINED_HIGH_PROFILE = 6;
+  VP9_PROFILE_0 = 8;
+  AV1_MAIN_PROFILE = 11;
+}
+
+message SdkSignalFrame {
+  enum Type {
+    JOIN = 1;
+    JOIN_ACK = 2;
+    SUBSCRIBE = 3;
+    SUBSCRIBE_ACK = 4;
+    INDEX = 5;
+    PAUSE = 7;
+    RESUME = 8;
+    LEAVE = 9;
+    LEAVE_ACK = 10;
+    BITRATES = 13;
+    AUDIO_CONTROL = 16;
+    AUDIO_METADATA = 17;
+    AUDIO_STREAM_ID_INFO = 18;
+    PING_PONG = 19;
+    AUDIO_STATUS = 20;
+    CLIENT_METRIC = 21;
+    DATA_MESSAGE = 22;
+    REMOTE_VIDEO_UPDATE = 24;
+    PRIMARY_MEETING_JOIN = 25;
+    PRIMARY_MEETING_JOIN_ACK = 26;
+    PRIMARY_MEETING_LEAVE = 27;
+    NOTIFICATION = 34;
+    MEETING_SESSION_TIMING = 43;
+  }
+  required uint64 timestampMs = 1;
+  required int32 type = 2;
+  optional SdkErrorFrame error = 3;
+  optional SdkJoinFrame join = 4;
+  optional SdkJoinAckFrame joinack = 5;
+  optional SdkSubscribeFrame sub = 6;
+  optional SdkSubscribeAckFrame suback = 7;
+  optional SdkIndexFrame index = 8;
+  optional SdkPauseResumeFrame pause = 10;
+  optional SdkLeaveFrame leave = 11;
+  optional SdkLeaveAckFrame leaveAck = 12;
+  optional SdkBitrateFrame bitrates = 14;
+  optional SdkAudioControlFrame audioControl = 17;
+  optional SdkAudioMetadataFrame audioMetadata = 18;
+  optional SdkAudioStreamIdInfoFrame audioStreamIdInfo = 19;
+  optional SdkPingPongFrame pingPong = 20;
+  optional SdkAudioStatusFrame audioStatus = 21;
+  optional SdkClientMetricFrame clientMetric = 22;
+  optional SdkDataMessageFrame dataMessage = 23;
+  optional SdkRemoteVideoUpdateFrame remoteVideoUpdate = 25;
+  optional SdkPrimaryMeetingJoinFrame primaryMeetingJoin = 26;
+  optional SdkPrimaryMeetingJoinAckFrame primaryMeetingJoinAck = 27;
+  optional SdkPrimaryMeetingLeaveFrame primaryMeetingLeave = 28;
+  optional SdkNotificationFrame notification = 35;
+  optional SdkMeetingSessionTimingFrame meetingSessionTiming = 44;
+}
+
+message SdkErrorFrame {
+  optional uint32 status = 1;
+  optional string description = 2;
+}
+
+message SdkClientDetails {
+  optional string appName = 1;
+  optional string appVersion = 2;
+  optional string deviceModel = 3;
+  optional string deviceMake = 4;
+  optional string platformName = 5;
+  optional string platformVersion = 6;
+  optional string clientSource = 7;
+  optional string chimeSdkVersion = 8;
+  optional string clientUtcOffset = 9;
+  optional string osName = 10;
+  optional string osVersion = 11;
+}
+
+message SdkJoinFrame {
+  optional uint32 protocolVersion = 1;
+  optional uint32 maxNumOfVideos = 2;
+  optional uint32 flags = 3;
+  optional SdkClientDetails clientDetails = 4;
+  optional uint64 audioSessionId = 6;
+  optional bool wantsCompressedSdp = 7;
+  optional int32 serverSideNetworkAdaption = 10;
+  repeated int32 supportedServerSideNetworkAdaptions = 11;
+  optional bool wantsAllTemporalLayersInIndex = 12;
+  optional bool disablePeriodicKeyframeRequestOnContentSender = 13;
+}
+
+message SdkJoinAckFrame {
+  optional SdkTurnCredentials turnCredentials = 1;
+  optional uint32 videoSubscriptionLimit = 2;
+  optional bool wantsCompressedSdp = 3;
+  optional int32 defaultServerSideNetworkAdaption = 4;
+}
+
+message SdkLeaveFrame {
+}
+
+message SdkLeaveAckFrame {
+}
+
+message SdkSubscribeFrame {
+  optional int32 duplex = 1;
+  repeated SdkStreamDescriptor sendStreams = 2;
+  repeated uint32 receiveStreamIds = 3;
+  optional string sdpOffer = 4;
+  optional string audioHost = 5;
+  optional bool audioCheckin = 6;
+  optional bool audioMuted = 7;
+  optional bytes compressedSdpOffer = 8;
+  repeated SdkVideoSubscriptionConfiguration videoSubscriptionConfiguration = 9;
+}
+
+message SdkSubscribeAckFrame {
+  optional int32 duplex = 1;
+  repeated SdkStreamAllocation allocations = 2;
+  optional string sdpAnswer = 3;
+  repeated SdkTrackMapping tracks = 4;
+  optional bytes compressedSdpAnswer = 5;
+}
+
+message SdkIndexFrame {
+  optional bool atCapacity = 1;
+  repeated SdkStreamDescriptor sources = 2;
+  repeated uint32 pausedAtSourceIds = 3;
+  optional uint32 numParticipants = 4;
+  repeated int32 supportedReceiveCodecIntersection = 5;
+}
+
+message SdkPauseResumeFrame {
+  repeated uint32 streamIds = 1;
+  repeated uint32 groupIds = 2;
+}
+
+message SdkBitrateFrame {
+  repeated SdkBitrate bitrates = 1;
+  optional uint32 serverAvailableOutgoingBitrate = 2;
+}
+
+message SdkStreamDescriptor {
+  optional uint32 streamId = 1;
+  optional uint32 framerate = 2;
+  optional uint32 maxBitrateKbps = 3;
+  optional string trackLabel = 4;
+  optional uint32 groupId = 6;
+  optional uint32 avgBitrateBps = 7;
+  optional string attendeeId = 8;
+  optional int32 mediaType = 9;
+  optional string externalUserId = 10;
+  optional uint32 width = 11;
+  optional uint32 height = 12;
+}
+
+message SdkStreamAllocation {
+  optional string trackLabel = 1;
+  optional uint32 streamId = 2;
+  optional uint32 groupId = 3;
+}
+
+message SdkTrackMapping {
+  optional uint32 streamId = 1;
+  optional uint32 ssrc = 2;
+  optional string trackLabel = 3;
+}
+
+message SdkBitrate {
+  optional uint32 sourceStreamId = 1;
+  optional uint32 avgBitrateBps = 2;
+}
+
+message SdkAudioControlFrame {
+  optional bool muted = 1;
+}
+
+message SdkAudioMetadataFrame {
+  repeated SdkAudioAttendeeState attendeeStates = 1;
+}
+
+message SdkAudioAttendeeState {
+  optional uint32 audioStreamId = 1;
+  optional uint32 volume = 2;
+  optional bool muted = 3;
+  optional uint32 signalStrength = 4;
+}
+
+message SdkAudioStreamIdInfoFrame {
+  repeated SdkAudioStreamIdInfo streams = 1;
+}
+
+message SdkAudioStreamIdInfo {
+  optional uint32 audioStreamId = 1;
+  optional string attendeeId = 2;
+  optional bool muted = 3;
+  optional string externalUserId = 4;
+  optional bool dropped = 5;
+}
+
+message SdkPingPongFrame {
+  required int32 type = 1;
+  required uint32 pingId = 2;
+}
+
+message SdkAudioStatusFrame {
+  optional uint32 audioStatus = 1;
+}
+
+message SdkMetric {
+  enum Type {
+    VIDEO_ACTUAL_ENCODER_BITRATE = 1;
+    VIDEO_AVAILABLE_SEND_BANDWIDTH = 2;
+    VIDEO_RETRANSMIT_BITRATE = 3;
+    VIDEO_AVAILABLE_RECEIVE_BANDWIDTH = 4;
+    VIDEO_TARGET_ENCODER_BITRATE = 5;
+    VIDEO_BUCKET_DELAY_MS = 6;
+    STUN_RTT_MS = 7;
+    SOCKET_DISCARDED_PPS = 8;
+    RTC_MIC_JITTER_MS = 9;
+    RTC_MIC_PPS = 10;
+    RTC_MIC_FRACTION_PACKET_LOST_PERCENT = 11;
+    RTC_MIC_BITRATE = 12;
+    RTC_MIC_RTT_MS = 13;
+    RTC_SPK_PPS = 14;
+    RTC_SPK_FRACTION_PACKET_LOST_PERCENT = 15;
+    RTC_SPK_JITTER_MS = 16;
+    RTC_SPK_FRACTION_DECODER_LOSS_PERCENT = 17;
+    RTC_SPK_BITRATE = 18;
+    RTC_SPK_CURRENT_DELAY_MS = 19;
+    RTC_SPK_JITTER_BUFFER_MS = 20;
+    VIDEO_SENT_RTT_MS = 21;
+    VIDEO_ENCODE_USAGE_PERCENT = 22;
+    VIDEO_NACKS_RECEIVED = 23;
+    VIDEO_PLIS_RECEIVED = 24;
+    VIDEO_ENCODE_MS = 25;
+    VIDEO_INPUT_FPS = 26;
+    VIDEO_ENCODE_FPS = 27;
+    VIDEO_SENT_FPS = 28;
+    VIDEO_FIRS_RECEIVED = 29;
+    VIDEO_SENT_PPS = 30;
+    VIDEO_SENT_FRACTION_PACKET_LOST_PERCENT = 31;
+    VIDEO_SENT_BITRATE = 32;
+    VIDEO_DROPPED_FPS = 33;
+    VIDEO_TARGET_DELAY_MS = 34;
+    VIDEO_DECODE_MS = 35;
+    VIDEO_OUTPUT_FPS = 36;
+    VIDEO_RECEIVED_PPS = 37;
+    VIDEO_RECEIVED_FRACTION_PACKET_LOST_PERCENT = 38;
+    VIDEO_RENDER_DELAY_MS = 39;
+    VIDEO_RECEIVED_FPS = 40;
+    VIDEO_DECODE_FPS = 41;
+    VIDEO_NACKS_SENT = 42;
+    VIDEO_FIRS_SENT = 43;
+    VIDEO_RECEIVED_BITRATE = 44;
+    VIDEO_CURRENT_DELAY_MS = 45;
+    VIDEO_JITTER_BUFFER_MS = 46;
+    VIDEO_DISCARDED_PPS = 47;
+    VIDEO_PLIS_SENT = 48;
+    VIDEO_RECEIVED_JITTER_MS = 49;
+    VIDEO_LOCAL_RENDER_FPS = 52;
+    VIDEO_REMOTE_RENDER_FPS = 56;
+    VIDEO_INPUT_HEIGHT = 60;
+    VIDEO_ENCODE_HEIGHT = 64;
+    VIDEO_SENT_QP_SUM = 66;
+    VIDEO_DECODE_HEIGHT = 69;
+    VIDEO_RECEIVED_QP_SUM = 72;
+    VIDEO_ENCODE_WIDTH = 86;
+    VIDEO_DECODE_WIDTH = 87;
+    VIDEO_ENCODER_IS_HARDWARE = 88;
+    VIDEO_DECODER_IS_HARDWARE = 89;
+    VIDEO_FREEZE_COUNT = 90;
+    VIDEO_FREEZE_DURATION = 91;
+    VIDEO_PAUSE_COUNT = 92;
+    VIDEO_PAUSE_DURATION = 93;
+    VIDEO_QUALITY_REASON = 94;
+    VIDEO_PROCESSING_TIME = 95;
+    RTC_SPK_AUDIO_LEVEL = 96;
+    RTC_MIC_AUDIO_LEVEL = 97;
+    RTC_SPK_TOTAL_LOST = 98;
+    RTC_SPK_TOTAL_EXPECTED = 99;
+    RTC_SPK_TOTAL_RECOVERED_RED = 100;
+    RTC_SPK_TOTAL_RECOVERED_FEC = 101;
+    VIDEO_QUALITY_LIMITATION_DURATION_CPU = 102;
+    VIDEO_CODEC_DEGRADATION_HIGH_ENCODE_CPU = 103;
+    VIDEO_CODEC_DEGRADATION_ENCODE_FAILURE = 104;
+    VIDEO_RENDER_HEIGHT = 105;
+    VIDEO_RENDER_WIDTH = 106;
+    VIDEO_INPUT_WIDTH = 107;
+    VIDEO_SENT_JITTER_MS = 108;
+    AUDIO_SENT_TRANSFORM_PPS = 109;
+    AUDIO_RECEIVED_TRANSFORM_PPS = 110;
+    VIDEO_SENT_TRANSFORM_PPS = 111;
+    VIDEO_RECEIVED_TRANSFORM_PPS = 112;
+    CPU_PRESSURE_STATE = 113;
+    VIDEO_BACKGROUND_SEGMENTATION_DURATION_MS = 114;
+    VIDEO_BACKGROUND_SEGMENTATION_EFFECT_RENDER_DURATION_MS = 115;
+    VIDEO_BACKGROUND_SEGMENTATION_FRAMES_PER_SEGMENTATION = 116;
+    VIDEO_BACKGROUND_SEGMENTATION_CPU_USAGE_PERCENT = 117;
+    VIDEO_BACKGROUND_SEGMENTATION_INITIALIZATION_DURATION_MS = 118;
+    VIDEO_BACKGROUND_SEGMENTATION_INITIALIZATION_FAILURE = 119;
+    VIDEO_BACKGROUND_SEGMENTATION_ERROR_COUNT = 120;
+    VIDEO_BACKGROUND_SEGMENTATION_FRAMES_SUBMITTED = 121;
+    VIDEO_BACKGROUND_SEGMENTATION_FRAMES_SEGMENTED = 122;
+    VIDEO_PIPELINE_FRAME_RATE = 123;
+    VIDEO_PROCESSOR_LATENCY_MS = 124;
+    VIDEO_BACKGROUND_SEGMENTATION_ASSET_LOADING_FAILURE = 125;
+    VIDEO_BACKGROUND_SEGMENTATION_ASSET_LOADING_TIME_MS = 126;
+    VIDEO_BACKGROUND_SEGMENTATION_COMPATIBILITY_FAILURE = 127;
+    VIDEO_BACKGROUND_SEGMENTATION_PROCESSOR_CREATION_FAILURE = 128;
+  }
+  optional int32 type = 1;
+  optional double value = 2;
+}
+
+message SdkStreamMetricFrame {
+  optional uint32 streamId = 3;
+  optional uint32 groupId = 4;
+  repeated SdkMetric metrics = 5;
+  repeated SdkStreamDimension dimensions = 6;
+  optional int32 mediaType = 7;
+}
+
+message SdkClientMetricFrame {
+  repeated SdkMetric globalMetrics = 1;
+  repeated SdkStreamMetricFrame streamMetricFrames = 2;
+}
+
+message SdkStreamDimension {
+  enum Type {
+    VIDEO_ENCODER_NAME = 1;
+    VIDEO_DECODER_NAME = 2;
+    VIDEO_BACKGROUND_SEGMENTATION_MODEL_TYPE = 3;
+    VIDEO_BACKGROUND_SEGMENTATION_DELEGATE_TYPE = 4;
+    VIDEO_PROCESSOR_NAME = 5;
+  }
+  optional int32 type = 1;
+  optional SdkDimensionValue value = 2;
+}
+
+message SdkDimensionValue {
+  optional string stringValue = 1;
+  optional bool boolValue = 2;
+  optional uint64 uintValue = 3;
+}
+
+message SdkDataMessageFrame {
+  repeated SdkDataMessagePayload messages = 1;
+}
+
+message SdkDataMessagePayload {
+  optional string topic = 1;
+  optional bytes data = 2;
+  optional uint32 lifetimeMs = 3;
+  optional string senderAttendeeId = 4;
+  optional int64 ingestTimeNs = 5;
+  optional string senderExternalUserId = 6;
+}
+
+message SdkTurnCredentials {
+  optional string username = 1;
+  optional string password = 2;
+  optional uint32 ttl = 3;
+  repeated string uris = 4;
+}
+
+message SdkTranscriptItem {
+  enum Type {
+    PRONUNCIATION = 1;
+    PUNCTUATION = 2;
+  }
+  optional string content = 1;
+  optional int64 endTime = 2;
+  optional string speakerAttendeeId = 3;
+  optional string speakerExternalUserId = 4;
+  optional int64 startTime = 5;
+  optional int32 type = 6;
+  optional bool vocabularyFilterMatch = 7;
+  optional double confidence = 8;
+  optional bool stable = 9;
+}
+
+message SdkTranscriptEntity {
+  optional string category = 1;
+  optional double confidence = 2;
+  optional string content = 3;
+  optional int64 endTime = 4;
+  optional int64 startTime = 5;
+  optional string type = 6;
+}
+
+message SdkTranscriptAlternative {
+  repeated SdkTranscriptItem items = 1;
+  optional string transcript = 2;
+  repeated SdkTranscriptEntity entities = 3;
+}
+
+message SdkTranscriptLanguageWithScore {
+  optional string languageCode = 1;
+  optional double score = 2;
+}
+
+message SdkTranscriptResult {
+  repeated SdkTranscriptAlternative alternatives = 1;
+  optional string channelId = 2;
+  optional int64 endTime = 3;
+  optional bool isPartial = 4;
+  optional string resultId = 5;
+  optional int64 startTime = 6;
+  optional string languageCode = 7;
+  repeated SdkTranscriptLanguageWithScore languageIdentification = 8;
+}
+
+message SdkTranscript {
+  repeated SdkTranscriptResult results = 1;
+}
+
+message SdkTranscriptionStatus {
+  enum Type {
+    STARTED = 1;
+    INTERRUPTED = 2;
+    RESUMED = 3;
+    STOPPED = 4;
+    FAILED = 5;
+  }
+  optional int32 type = 1;
+  optional int64 eventTime = 2;
+  optional string transcriptionRegion = 3;
+  optional string transcriptionConfiguration = 4;
+  optional string message = 5;
+}
+
+message SdkTranscriptEvent {
+  optional SdkTranscriptionStatus status = 1;
+  optional SdkTranscript transcript = 2;
+}
+
+message SdkTranscriptFrame {
+  repeated SdkTranscriptEvent events = 1;
+}
+
+message SdkRemoteVideoUpdateFrame {
+  repeated SdkVideoSubscriptionConfiguration addedOrUpdatedVideoSubscriptions = 1;
+  repeated string removedVideoSubscriptionMids = 2;
+}
+
+message SdkVideoSubscriptionConfiguration {
+  required string mid = 1;
+  optional string attendeeId = 2;
+  optional uint32 streamId = 3;
+  optional uint32 priority = 4;
+  optional uint32 targetBitrateKbps = 5;
+  optional uint32 groupId = 6;
+  optional int32 qualityAdaptationPreference = 7;
+}
+
+message SdkNotificationFrame {
+  enum NotificationLevel {
+    INFO = 1;
+    WARNING = 2;
+    ERROR = 3;
+  }
+  optional int32 level = 1;
+  optional string message = 2;
+}
+
+message SdkPrimaryMeetingJoinFrame {
+  optional SdkMeetingSessionCredentials credentials = 1;
+}
+
+message SdkPrimaryMeetingJoinAckFrame {
+}
+
+message SdkPrimaryMeetingLeaveFrame {
+}
+
+message SdkMeetingSessionCredentials {
+  optional string attendeeId = 1;
+  optional string externalUserId = 2;
+  optional string joinToken = 3;
+}
+
+message SdkMeetingSessionTimingFrame {
+  repeated SdkMeetingSessionSignalingTiming signaling = 1;
+  repeated SdkMeetingSessionRemoteAudioTiming remoteAudio = 2;
+  repeated SdkMeetingSessionLocalAudioTiming localAudio = 3;
+  repeated SdkMeetingSessionLocalVideoTiming localVideo = 4;
+  repeated SdkMeetingSessionRemoteVideoTiming remoteVideos = 5;
+}
+
+message SdkMeetingSessionSignalingTiming {
+  optional int64 startMs = 1;
+  optional int64 joinSentMs = 2;
+  optional int64 joinAckReceivedMs = 3;
+  optional int64 transportConnectedMs = 4;
+  optional int64 createOfferMs = 5;
+  optional int64 setLocalDescriptionMs = 6;
+  optional int64 setRemoteDescriptionMs = 7;
+  optional int64 iceGatheringStartMs = 8;
+  optional int64 iceGatheringCompleteMs = 9;
+  optional int64 iceConnectedMs = 10;
+  optional int64 subscribeSentMs = 11;
+  optional int64 subscribeAckMs = 12;
+  optional bool timedOut = 13;
+}
+
+message SdkMeetingSessionRemoteAudioTiming {
+  optional int64 addedMs = 1;
+  optional int64 firstPacketReceivedMs = 2;
+  optional int64 firstFrameRenderedMs = 3;
+  optional bool timedOut = 4;
+  optional bool removed = 5;
+}
+
+message SdkMeetingSessionLocalAudioTiming {
+  optional int64 addedMs = 1;
+  optional int64 firstFrameCapturedMs = 2;
+  optional int64 firstPacketSentMs = 3;
+  optional bool timedOut = 4;
+  optional bool removed = 5;
+}
+
+message SdkMeetingSessionLocalVideoTiming {
+  optional int64 addedMs = 1;
+  optional int64 firstFrameCapturedMs = 2;
+  optional int64 firstFrameSentMs = 3;
+  optional bool timedOut = 4;
+  optional bool removed = 5;
+}
+
+message SdkMeetingSessionRemoteVideoTiming {
+  optional uint32 groupId = 1;
+  optional int64 addedMs = 2;
+  optional int64 firstPacketReceivedMs = 3;
+  optional int64 firstFrameRenderedMs = 4;
+  optional bool timedOut = 5;
+  optional bool removed = 6;
+}

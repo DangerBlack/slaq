@@ -1,0 +1,314 @@
+// Minimal slice-1 contract for slaq mods. Primitive types only, to keep the
+// first host small; richer records/variants come later (see docs/mods/api-v0.md).
+package slaq:api@0.1.0;
+
+/// What the host exposes to a mod.
+///
+/// Every import is capability-gated: `get-message` needs `messages.read`
+/// (enforced per channel against the *effective granted scope* — the
+/// intersection of the persisted consent and the manifest request, so consent
+/// can be narrower), `kv-get`/`kv-set` need `store.kv`, `decorate` needs
+/// `ui.message_decoration`, `http-fetch` needs `net.egress`, `list-channels`
+/// needs `channels.list` and `list-users` needs `users.list`. `list-grants`,
+/// `setting-get` and `setting-set` are always available. `fs-list`/`fs-read`/
+/// `fs-write`/`fs-search` need `filesystem` (the host performs all disk I/O
+/// against user-mapped, host-contained slots; the guest never sees a path). A
+/// call without its capability (or outside scope) fails with a `permission-denied`
+/// error string, and `on-message` is delivered only for channels inside that
+/// scope.
+interface host {
+  /// A file attached to a message (metadata only; the bytes come from `file-get`).
+  record file-ref {
+    id: string,
+    name: string,
+    mime: string,
+  }
+
+  /// A message a mod may read: the author, the text, its thread info and its
+  /// files (feed a file's `id` to `file-get`). The target `message` also carries a
+  /// `message-ref`; slice 1 keeps the channel on the call and `ts` here.
+  record message {
+    author: string,
+    ts: string,
+    text: string,
+    thread-ts: option<string>,
+    reply-count: u32,
+    files: list<file-ref>,
+  }
+
+  /// A message the mod may read. Needs `messages.read`, within scope.
+  get-message: func(channel: string, ts: string) -> result<message, string>;
+
+  /// A channel's history, newest first: up to `limit` (at most 200) messages
+  /// older than `before` (exclusive; `none` = from the newest). Served from
+  /// Slack through the user's session, so it reaches back past what slaq has on
+  /// screen. Needs `messages.read`, within scope. Paced per mod: an error that
+  /// starts with `rate-limited` means try again later. A message's `files` is
+  /// always empty here (`file-get` serves only files slaq has shown).
+  history: func(channel: string, before: option<string>, limit: u32)
+      -> result<list<message>, string>;
+
+  /// A thread's messages, the parent first: up to `limit` (at most 200).
+  /// Needs `messages.read`, within scope; paced like `history`.
+  thread-replies: func(channel: string, thread-ts: string, limit: u32)
+      -> result<list<message>, string>;
+
+  /// Per-mod key/value store (in-memory in this first cut).
+  kv-get: func(key: string) -> result<option<string>, string>;
+  kv-set: func(key: string, value: string) -> result<_, string>;
+
+  /// Attach a text decoration under the message currently being handled
+  /// (rendered by the GUI; printed by the headless runner).
+  decorate: func(channel: string, ts: string, text: string) -> result<_, string>;
+
+  /// Perform an HTTP request and return `(status, response-body)`.
+  ///
+  /// `net.egress` must list the URL's host; the host enforces it **per
+  /// connection**: the name must resolve to a public address (DNS rebinding is
+  /// refused), redirects are **not** followed, and request/response sizes are
+  /// capped. There is no field to name a host-owned secret.
+  http-fetch: func(
+      method: string,
+      url: string,
+      headers: list<tuple<string, string>>,
+      body: option<list<u8>>
+  ) -> result<tuple<u16, list<u8>>, string>;
+
+  /// The client's channels, as `(id, name)` pairs. Needs `channels.list`.
+  /// Available from `start` and refreshed on each event; the headless runner has
+  /// no directory and returns an empty list.
+  list-channels: func() -> result<list<tuple<string, string>>, string>;
+
+  /// The client's users, as `(id, display-name)` pairs. Needs `users.list`.
+  /// Same availability as `list-channels`.
+  list-users: func() -> result<list<tuple<string, string>>, string>;
+
+  /// The capabilities the host actually granted, as normative names. This may be
+  /// a subset of the manifest's request (consent is per capability), so a mod
+  /// can branch on partial consent. Always available; never `permission-denied`.
+  list-grants: func() -> list<string>;
+
+  /// A configured setting value. A secret reads back as `text`.
+  variant setting-value {
+    text(string),
+    integer(s64),
+    real(f64),
+    flag(bool),
+  }
+
+  /// The value the user configured for `key`, if any. `settings.*` is
+  /// **ungated**: always available and never `permission-denied`. An unknown key
+  /// returns `none`.
+  setting-get: func(key: string) -> result<option<setting-value>, string>;
+
+  /// Writes a **non-secret** setting. A secret key is read-only to the mod (it
+  /// is written by the user in the host-rendered form), and an unknown key or a
+  /// value of the wrong type is refused.
+  setting-set: func(key: string, value: setting-value) -> result<_, string>;
+
+  /// Set the content of a view the mod declared in `ui.views`. `blocks` are
+  /// `(kind, text)` pairs where `kind` is `section`, `context` or `divider` (a
+  /// `divider`'s text is ignored); the slice-1 form of `content-block`. Needs
+  /// `ui.view`; an undeclared view, an unknown kind or an over-long text is
+  /// refused.
+  set-view-content: func(view: string, blocks: list<tuple<string, string>>)
+      -> result<_, string>;
+
+  /// Upsert vectors into the mod's private vector store. Each item is
+  /// `(key, vector, meta)`: `vector` must have the manifest's `dim`, and the
+  /// count and total bytes are capped by `maxVectors`/`maxBytes`. Needs
+  /// `store.vector`; the store is the host's (`docs/mods/manifest-v0.md`).
+  vec-upsert: func(items: list<tuple<string, list<f32>, option<string>>>)
+      -> result<_, string>;
+
+  /// The `k` stored vectors nearest to `vector` (cosine similarity), as
+  /// `(key, score, meta)` triples best-first, optionally restricted to keys that
+  /// start with `prefix`. `vector` must have the manifest's `dim`. Needs
+  /// `store.vector`.
+  vec-search: func(vector: list<f32>, k: u32, prefix: option<string>)
+      -> result<list<tuple<string, f32, option<string>>>, string>;
+
+  /// Remove the vectors with these keys (missing keys are ignored), returning
+  /// how many were removed. Needs `store.vector`.
+  vec-delete: func(keys: list<string>) -> result<u32, string>;
+
+  /// A value crossing the SQL boundary (`store.sql`).
+  variant sql-value {
+    null,
+    int(s64),
+    real(f64),
+    text(string),
+    blob(list<u8>),
+  }
+
+  /// One statement's result: its column names, the rows and the number of rows it
+  /// changed (for a statement that writes).
+  record sql-result {
+    columns: list<string>,
+    rows: list<list<sql-value>>,
+    changes: u64,
+  }
+
+  /// Run **one** statement against the mod's private `scratch.db` (`store.sql`);
+  /// a second statement in the same string is ignored (use `sql-tx` for several).
+  /// DDL is allowed (it is the mod's own DB); the host denies `ATTACH`/`DETACH`,
+  /// dangerous pragmas and its own namespace, and bounds the statement's
+  /// length/complexity, the run time, the file size and the returned bytes. Needs
+  /// `store.sql`.
+  sql-query: func(query: string, params: list<sql-value>) -> result<sql-result, string>;
+
+  /// Run several statements in one transaction against the same DB, one result
+  /// each, in order. Needs `store.sql`.
+  sql-tx: func(statements: list<tuple<string, list<sql-value>>>)
+      -> result<list<sql-result>, string>;
+
+  /// Raise a desktop notification (a no-op when the user has notifications off).
+  /// `title`/`body` are sanitized and length-capped, and the notification is
+  /// attributed to the mod. Needs `notify`.
+  notify-post: func(title: string, body: string) -> result<_, string>;
+
+  /// React to a message the mod may read, **as the user**: `name` is a Slack
+  /// emoji name (`thumbsup`, `+1`). Needs `reactions.write`; the message must be
+  /// inside the mod's `messages.read` scope. The change shows once Slack echoes
+  /// it back.
+  reactions-add: func(channel: string, ts: string, name: string) -> result<_, string>;
+
+  /// Remove one of the user's reactions from a message (`reactions.remove`).
+  reactions-remove: func(channel: string, ts: string, name: string) -> result<_, string>;
+
+  /// Send a message **as the user** to a channel inside the mod's `messages.read`
+  /// scope (the slice-1 form of `chat.send`; no activation token — the capability
+  /// grant is the authorization). `text` is length-capped, `thread` optionally
+  /// replies in a thread; returns the `(channel, ts)` of the new message. Needs
+  /// `chat.send` **and** `messages.read` (the scope bounds where it may post).
+  chat-send: func(channel: string, text: string, thread: option<string>)
+      -> result<tuple<string, string>, string>;
+
+  /// Forward a message **as the user**: post a link to `(from-channel, ts)` into
+  /// `to-channel` (the slice-1 form of `chat.forward`; ambient, like `chat-send` —
+  /// the capability grant is the authorization). The **source** must be a message
+  /// the mod actually received (the delivered window), inside its `messages.read`
+  /// scope, and so must the destination channel; returns the `(channel, ts)` of the
+  /// new message. Needs `chat.forward` and `messages.read`.
+  chat-forward: func(from-channel: string, ts: string, to-channel: string)
+      -> result<tuple<string, string>, string>;
+
+  /// Replace the composer's text for `channel` (the slice-1 form of
+  /// `ui.set-composer-text`): the mod proposes text, the **user** still sends it.
+  /// Needs `ui.composer_action`, and is only honored during the
+  /// `on-composer-action` callback it belongs to. `text` is sanitized and
+  /// length-capped.
+  ui-set-composer-text: func(channel: string, text: string) -> result<_, string>;
+
+  /// Show a **modal dialog** (the slice-1 form of `ui.show-dialog`): `title`,
+  /// `blocks` (`(kind, text)` pairs like `set-view-content`; `kind` is `section`,
+  /// `context` or `divider`) and `actions` (`(id, label)` buttons). The host
+  /// renders it as a modal over the UI and the **user** dismisses it; clicking an
+  /// action calls the mod's `on-dialog-action`. Needs `ui.dialog`; the sizes are
+  /// bounded, and at most one dialog is shown at a time (the last `show` wins).
+  ui-show-dialog: func(
+      title: string,
+      blocks: list<tuple<string, string>>,
+      actions: list<tuple<string, string>>
+  ) -> result<_, string>;
+
+  /// Close the mod's open dialog early (the slice-1 form of `ui.close-dialog`).
+  /// Needs `ui.dialog`. A no-op when the mod has no dialog open.
+  ui-close-dialog: func() -> result<_, string>;
+
+  /// The bytes of a file shared in a message the mod may read (the slice-1 form
+  /// of `files.download`). `id` is the opaque `message.files[].id`; the host
+  /// resolves it against the messages it delivered and refuses anything that is
+  /// not a Slack-hosted file. Needs `files.download` **and** the file's channel
+  /// inside the mod's `messages.read` scope; the response is size-capped, so a
+  /// very large file is refused rather than truncated. The host keeps a **bounded**
+  /// map of the window's files, so in a very files-heavy window an id a message
+  /// listed may be refused as unknown.
+  file-get: func(id: string) -> result<list<u8>, string>;
+
+  /// Upload a file **as the user** to a channel inside the mod's `messages.read`
+  /// scope (the slice-1 form of `files.upload`; ambient, like `chat-send` — the
+  /// capability grant is the authorization, there is no activation token). `name`'s
+  /// extension tells Slack the type (slice 1 carries no explicit mime); the bytes
+  /// are size-capped and share the per-dispatch write budget. Returns the new
+  /// file's id.
+  file-upload: func(channel: string, name: string, bytes: list<u8>)
+      -> result<string, string>;
+
+  /// A directory entry a mod may list (`fs-list`).
+  record fs-entry { path: string, kind: string, size: u64 }
+  /// A search match (`fs-search`).
+  record fs-hit { path: string, line: u64, text: string }
+
+  /// List a slot's directory (one level, or recursive). `path` is relative to the
+  /// slot root ("" = the root). Needs `filesystem` and a `read` slot; the walk is
+  /// bounded and symlinks are skipped. Paths returned are relative to the slot.
+  fs-list: func(slot: string, path: string, recursive: bool, max-entries: u32) -> result<list<fs-entry>, string>;
+  /// The bytes of a regular file in a slot. Needs `filesystem` and a `read` slot;
+  /// size-capped (refuses, never truncates).
+  fs-read: func(slot: string, path: string) -> result<list<u8>, string>;
+  /// Create a **new** file in a slot. Needs `filesystem` and a `write` slot; the
+  /// parent directory must exist, an existing file is refused (no overwrite), and
+  /// the bytes are capped.
+  fs-write: func(slot: string, path: string, bytes: list<u8>) -> result<_, string>;
+  /// Search a slot's files for a case-insensitive literal substring, as
+  /// `(relative-path, line-number, text)` hits. Needs `filesystem` and a `read`
+  /// slot; the scan and the results are bounded.
+  fs-search: func(slot: string, path: string, pattern: string, max-hits: u32) -> result<list<fs-hit>, string>;
+}
+
+/// What a mod must export.
+interface guest {
+  /// Called once after instantiation.
+  start: func() -> result<_, string>;
+  /// Called for each relevant event.
+  ///
+  /// Delivery is **at-least-once**: a message may be delivered more than once —
+  /// after an edit (its content hash changes) or after the host's delivery
+  /// history evicts an old entry — so handlers must be **idempotent** and must
+  /// not assume exactly-once execution (e.g. a KV counter can advance twice).
+  on-message: func(channel: string, ts: string, author: string, text: string) -> result<_, string>;
+  /// Called when the user invokes a message action the mod declared in
+  /// `ui.messageActions`. `id` is the action id and `(channel, ts)` is the
+  /// message it was invoked on; the host makes that message current, so
+  /// `decorate` targets it. Delivered only if the mod holds `ui.message_action`
+  /// and the channel is inside its `messages.read` scope.
+  on-action: func(id: string, channel: string, ts: string) -> result<_, string>;
+  /// Called for a passive event the mod subscribed to in `events` that carries
+  /// no message: `kind` is `channel.opened` or `channel.updated`, `channel` is
+  /// the affected channel. Delivered only if the mod holds the event's
+  /// capability (`channels.list`). Message events are delivered via `on-message`.
+  on-event: func(kind: string, channel: string) -> result<_, string>;
+  /// Called for a reaction the mod subscribed to (`reaction.added` /
+  /// `reaction.removed`): `name` is the Slack emoji name, `user` who reacted,
+  /// `added` whether it was added (`true`) or removed (`false`), and
+  /// `(channel, ts)` is the reacted message (which `get-message` serves when it
+  /// is in the window). Delivered only if the mod holds `messages.read` and the
+  /// channel is inside its `messages.read` scope. The user's own reactions are
+  /// not delivered (a mod reacts as the user, so echoing them back would loop a
+  /// mod into itself). A reaction has no writable target: `decorate` does
+  /// nothing here.
+  on-reaction: func(channel: string, ts: string, name: string, user: string, added: bool)
+      -> result<_, string>;
+  /// Called when the user runs a slash command the mod declared in `commands`:
+  /// `name` is the command, `args` the text after it, `channel` where it was
+  /// typed. Delivered only if the mod holds `commands.slash`. A command carries
+  /// no message, so `decorate` has nothing to target.
+  on-command: func(name: string, args: string, channel: string) -> result<_, string>;
+  /// Called when the user invokes a composer action the mod declared in
+  /// `ui.composerActions`: `id` is the action, `channel` the conversation,
+  /// `draft` the current composer text. The mod may reply with
+  /// `ui-set-composer-text`; delivered only if it holds `ui.composer_action`
+  /// and the channel is inside its `messages.read` scope.
+  on-composer-action: func(id: string, channel: string, draft: string) -> result<_, string>;
+  /// Called when the user clicks an action button on a dialog the mod showed
+  /// with `ui-show-dialog`. `id` is the action id; the dialog is dismissed before
+  /// the callback runs, so the mod may show another one. Delivered only if the
+  /// mod holds `ui.dialog`.
+  on-dialog-action: func(id: string) -> result<_, string>;
+}
+
+world plugin {
+  import host;
+  export guest;
+}

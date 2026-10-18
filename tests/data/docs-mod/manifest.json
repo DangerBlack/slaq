@@ -1,0 +1,15 @@
+{
+  "manifestVersion": 0,
+  "id": "dev.slaq.docs",
+  "name": "Docs Mod",
+  "version": "0.1.0",
+  "apiVersion": "0.1",
+  "description": "Reference filesystem mod: searches the user-mapped `docs` slot for each message and decorates hits with the file and line.",
+  "entry": { "type": "wasm", "path": "mod.wasm" },
+  "capabilities": {
+    "messages.read": { "scope": "all" },
+    "filesystem": { "slots": [{ "name": "docs", "access": "read" }] },
+    "ui.message_decoration": {}
+  },
+  "events": ["message.created"]
+}

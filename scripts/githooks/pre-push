@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+#
+# pre-push gate: run the same checks as CI before anything leaves the machine,
+# so a push that CI would reject is stopped here, minutes earlier. Install it
+# once with:
+#
+#     scripts/install-hooks.sh
+#
+# or, equivalently:
+#
+#     git config core.hooksPath scripts/githooks
+#
+# To skip a single push:
+#
+#     git push --no-verify
+#
+# or, without arguments, by setting the environment variable:
+#
+#     SLAQ_SKIP_SECURITY_CHECK=1 git push
+
+set -uo pipefail
+
+if [ "${SLAQ_SKIP_SECURITY_CHECK:-}" = "1" ]; then
+  echo "pre-push: security check skipped (SLAQ_SKIP_SECURITY_CHECK=1)"
+  exit 0
+fi
+
+root="$(git rev-parse --show-toplevel 2>/dev/null)" || exit 0
+cd "$root" || exit 0
+
+if [ ! -x scripts/security-check.sh ]; then
+  echo "pre-push: scripts/security-check.sh not found or not executable — skipping"
+  exit 0
+fi
+
+echo "pre-push: running scripts/security-check.sh (git push --no-verify to skip)…"
+if ! ./scripts/security-check.sh; then
+  echo
+  echo "pre-push: the security check failed — push aborted."
+  echo "Fix the findings (see docs/security.md) or push with --no-verify."
+  exit 1
+fi
