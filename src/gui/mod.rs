@@ -261,6 +261,15 @@ const ANIM_ITEM_BYTES_MAX: usize = 24 * 1024 * 1024;
 //  - and the animated set as a whole is evicted, oldest first, back under this.
 const ANIM_TOTAL_BYTES_MAX: usize = 48 * 1024 * 1024;
 
+// No decoded frame may exceed this on either side. A GPU refuses a texture
+// larger than its maximum side (commonly 16384) and the painter panics rather
+// than skipping it, so a long screenshot pasted into a channel — 1488x21601 is
+// a real one — would abort the whole client. We also stay well below the
+// hardware limit on purpose: a 16384-tall RGBA texture is 100MB of VRAM for an
+// image drawn a few hundred pixels wide. The effective cap is this or the
+// driver's maximum, whichever is smaller.
+const IMAGE_SIDE_MAX: u32 = 8192;
+
 // How many older stretches a pending jump may pull in before giving up. Each
 // one is a network round trip, so the bound keeps a missing target from
 // loading the whole history.
@@ -900,10 +909,25 @@ enum Decoded {
     Animated(Vec<(egui::ColorImage, std::time::Duration)>),
 }
 
+/// Shrink an image that is too large to be a texture, keeping its aspect ratio.
+///
+/// `resize` fits inside the box rather than stretching to it, so a 1488x21601
+/// strip at `max` 8192 comes back 564x8192, not a squashed square.
+fn clamp_side(img: image::DynamicImage, max: u32) -> image::DynamicImage {
+    if img.width() <= max && img.height() <= max {
+        return img;
+    }
+    img.resize(max, max, image::imageops::FilterType::Triangle)
+}
+
 /// Decode image bytes, detecting an animated GIF. A multi-frame GIF within the
 /// byte budget comes back as `Animated`; anything else (a still, a one-frame
 /// GIF, or a GIF too large to animate) comes back as `Static` — the first frame.
-fn decode_image(bytes: &[u8]) -> Option<Decoded> {
+///
+/// `max_side` caps either dimension of every frame produced; anything larger is
+/// scaled down. Nothing downstream checks this, and the GPU painter panics on a
+/// texture it cannot make, so the cap has to hold here.
+fn decode_image(bytes: &[u8], max_side: u32) -> Option<Decoded> {
     let is_gif = image::guess_format(bytes)
         .map(|f| f == image::ImageFormat::Gif)
         .unwrap_or(false);
@@ -923,7 +947,11 @@ fn decode_image(bytes: &[u8]) -> Option<Decoded> {
                         if ms < 20 {
                             ms = 100;
                         }
-                        let buf = frame.into_buffer();
+                        let buf = clamp_side(
+                            image::DynamicImage::ImageRgba8(frame.into_buffer()),
+                            max_side,
+                        )
+                        .to_rgba8();
                         let size = [buf.width() as usize, buf.height() as usize];
                         bytes_total += size[0] * size[1] * 4;
                         out.push((
@@ -942,7 +970,7 @@ fn decode_image(bytes: &[u8]) -> Option<Decoded> {
             }
         }
     }
-    let img = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let img = clamp_side(image::load_from_memory(bytes).ok()?, max_side).to_rgba8();
     let size = [img.width() as usize, img.height() as usize];
     Some(Decoded::Static(egui::ColorImage::from_rgba_unmultiplied(
         size,
@@ -952,7 +980,7 @@ fn decode_image(bytes: &[u8]) -> Option<Decoded> {
 
 #[cfg(test)]
 mod anim_tests {
-    use super::{Decoded, decode_image};
+    use super::{Decoded, IMAGE_SIDE_MAX, clamp_side, decode_image};
 
     fn two_frame_gif() -> Vec<u8> {
         use image::codecs::gif::GifEncoder;
@@ -976,7 +1004,7 @@ mod anim_tests {
 
     #[test]
     fn a_multi_frame_gif_decodes_as_animated() {
-        match decode_image(&two_frame_gif()) {
+        match decode_image(&two_frame_gif(), IMAGE_SIDE_MAX) {
             Some(Decoded::Animated(frames)) => assert_eq!(frames.len(), 2),
             _ => panic!("a 2-frame GIF should decode as animated"),
         }
@@ -988,12 +1016,34 @@ mod anim_tests {
         image::RgbaImage::from_pixel(2, 2, image::Rgba([1, 2, 3, 255]))
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
             .unwrap();
-        assert!(matches!(decode_image(&png), Some(Decoded::Static(_))));
+        assert!(matches!(
+            decode_image(&png, IMAGE_SIDE_MAX),
+            Some(Decoded::Static(_))
+        ));
+    }
+
+    #[test]
+    fn an_oversized_image_is_scaled_within_the_cap() {
+        // A long screenshot: taller than any GPU will take as a texture.
+        let img = image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(
+            100,
+            1000,
+            image::Rgba([9, 9, 9, 255]),
+        ));
+        let out = clamp_side(img, 100);
+        assert_eq!((out.width(), out.height()), (10, 100));
+    }
+
+    #[test]
+    fn a_small_image_is_left_alone() {
+        let img = image::DynamicImage::ImageRgba8(image::RgbaImage::new(4, 7));
+        let out = clamp_side(img, 100);
+        assert_eq!((out.width(), out.height()), (4, 7));
     }
 
     #[test]
     fn garbage_bytes_decode_to_nothing() {
-        assert!(decode_image(b"not an image at all").is_none());
+        assert!(decode_image(b"not an image at all", IMAGE_SIDE_MAX).is_none());
     }
 }
 
@@ -6901,7 +6951,12 @@ impl Gui {
                 }
             }
         };
-        let decoded = match decode_image(&bytes) {
+        // The driver's own limit, further capped by ours: a texture over either
+        // is a panic inside the painter, not a skipped image.
+        let max_side = ctx
+            .input(|i| i.max_texture_side)
+            .min(IMAGE_SIDE_MAX as usize) as u32;
+        let decoded = match decode_image(&bytes, max_side) {
             Some(d) => d,
             None => {
                 // A corrupt or partial file must not be decoded again every

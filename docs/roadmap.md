@@ -1,6 +1,6 @@
 # Roadmap
 
-Status as of 2026-10-18 (the latest update entry is first). The order is by *how often it forces you to reopen
+Status as of 2026-11-03 (the latest update entry is first). The order is by *how often it forces you to reopen
 Slack*, not by difficulty.
 
 Effort legend: **S** a few hours · **M** a day · **L** several days.
@@ -8,6 +8,16 @@ Effort legend: **S** a few hours · **M** a day · **L** several days.
 The phases below are kept as they were written, because they document the
 reasoning. A few claims inside them are older than this header: where they have
 been overtaken, an inline note says so.
+
+## Update — 2026-11-03 — 0.9.1
+
+- **0.9.1: images no longer abort the client.** Every decoded image — an
+  attachment, a preview, a custom emoji, an avatar, each frame of a GIF — is
+  scaled to fit within the GPU's maximum texture side, further capped at 8192.
+  Before this, a long screenshot shared in a channel (1488x21601 was the real
+  one) panicked inside egui's painter the moment it was drawn, which aborts the
+  process: the client died on startup for anyone whose history held one, with no
+  way to get past it from inside the app.
 
 ## Update — 2026-10-18 — 0.7 to 0.9
 
