@@ -9,6 +9,24 @@ The phases below are kept as they were written, because they document the
 reasoning. A few claims inside them are older than this header: where they have
 been overtaken, an inline note says so.
 
+## Update — 2026-11-03 — 0.9.2
+
+- **0.9.2: the `@` / `#` completion is usable again.**
+  - **A name could not be picked with the mouse at all.** egui drops a widget's
+    focus the moment a mouse button goes down outside it, and the popup sits
+    above the composer, so the press unfocused the composer, the entry stopped
+    being drawn, and the release found nothing to click. The completion now
+    survives a click on its own popup, and hands the focus back afterwards.
+  - **In a thread the keyboard did nothing.** Both composers are drawn in the
+    same frame and shared one completion state; the main one, drawn first, ate
+    the Enter and then cleared the list because it had no focus. The completion
+    now belongs to one composer (`complete_owner`) and every step is a no-op
+    for the other.
+  - **A tagged channel read as a raw id.** Slack echoes a sent message with the
+    name dropped (`<#C123>`), so `#generale` came back `#C09ABCDEF`. The id is
+    resolved against the workspace list, which also keeps a renamed channel
+    reading by its current name.
+
 ## Update — 2026-11-03 — 0.9.1
 
 - **0.9.1: images no longer abort the client.** Every decoded image — an

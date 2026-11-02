@@ -68,6 +68,18 @@ fn downscale_thumbnail(rgba: &[u8], width: u32, height: u32) -> Option<(u32, u32
     Some((tw, th, resized.into_raw()))
 }
 
+/// The main composer's fixed widget id — also the key its completion is
+/// owned by. Fixed, not egui's automatic one: see the `TextEdit` that uses it.
+fn main_composer_id() -> egui::Id {
+    egui::Id::new("composer_input")
+}
+
+/// The same for the thread composer. The two are drawn in the same frame, so
+/// their ids are what tells one composer's completion from the other's.
+fn thread_composer_id() -> egui::Id {
+    egui::Id::new("thread_composer_input")
+}
+
 /// A key meant for the completion, not for the composer.
 #[derive(Clone, Copy)]
 enum CompletionKey {
@@ -1308,6 +1320,21 @@ fn matching_timestamps(messages: &[MessageEntry], query: &str) -> Vec<String> {
         .collect()
 }
 
+/// The name to show for a `<#C123>` channel reference in a message.
+///
+/// Slack's own echo of a message you just sent drops the `|name` half of the
+/// reference, leaving `<#C123>` — and with no name in it the parser falls back
+/// to the id, so a channel you had just tagged came back reading `#C09ABCDEF`.
+/// The workspace's own list is the authority: it resolves that id, and it also
+/// keeps a renamed channel reading by its current name, as the official client
+/// does. Only for an id that is in no list does the message's own label stand.
+fn channel_mention_label(id: &str, label: &str, channels: &[ChannelRow]) -> String {
+    match channels.iter().find(|c| c.id == id) {
+        Some(c) if !c.name.is_empty() => c.name.clone(),
+        _ => label.to_string(),
+    }
+}
+
 /// Resolves a conversation id to a human label: the peer for a DM/MPIM, the
 /// `#name` for a channel. A bare id is only ever a last resort, prefixed so it
 /// cannot be mistaken for a name.
@@ -2021,10 +2048,17 @@ struct Gui {
     /// The composer's position, to put the popup above it.
     composer_rect: egui::Rect,
     composer_id: Option<egui::Id>,
-    /// Which composer the mention/channel completion is acting on. The state
-    /// (`complete_items`, `complete_span`) is shared because only one composer
-    /// has focus at a time.
-    complete_in_thread: bool,
+    /// Which composer the mention/channel completion belongs to.
+    ///
+    /// The state (`complete_items`, `complete_span`, …) is shared, but *both*
+    /// composers are drawn in the same frame when a thread is open. Without an
+    /// owner the one drawn first — always the main composer — consumed the
+    /// keys the popup needs and then cleared the list because it did not have
+    /// the focus, so in a thread neither Enter nor the arrows ever reached the
+    /// entry. Every step now does nothing unless it owns the completion.
+    complete_owner: Option<egui::Id>,
+    /// Where the popup was drawn last frame, to recognise a click on it.
+    complete_rect: Option<egui::Rect>,
     /// The thread panel's area, to work out where a file was dropped.
     thread_rect: egui::Rect,
     /// The unread rows drawn on the last frame: vertical position and
@@ -3231,14 +3265,15 @@ impl Gui {
                 // `TextEdit` sees them: otherwise Enter sends the message,
                 // Tab moves the focus and neither of them picks the entry.
                 self.handle_paste(ui, None);
-                let action = self.completion_keys(ui);
+                let owner = main_composer_id();
+                let action = self.completion_keys(ui, owner);
 
                 // A `TextEdit` gets only a *floor* from `min_size`: left alone it
                 // grows to fit all the text, making the row (and the panel) as tall
                 // as the post — the buttons, which anchor to the row's bottom, then
                 // went off the panel. Past the row cap (`composer_box`), bound it and
                 // scroll inside; up to the cap the rendering is unchanged.
-                let lock = !self.complete_items.is_empty();
+                let lock = self.complete_owner == Some(owner) && !self.complete_items.is_empty();
                 let hint = t!("gui.composer_hint").to_string();
                 let mut text_edit = |ui: &mut egui::Ui| {
                     egui::TextEdit::multiline(&mut self.input)
@@ -3251,7 +3286,7 @@ impl Gui {
                         // global `Id::new` and not `id_salt`: past the row cap
                         // the field moves inside a `ScrollArea`, whose extra `Ui`
                         // layer would re-salt it.
-                        .id(egui::Id::new("composer_input"))
+                        .id(owner)
                         .desired_rows(1)
                         .desired_width(width)
                         // With the popup open Tab has to pick the entry, not move
@@ -3284,8 +3319,8 @@ impl Gui {
                     .cursor_range
                     .map(|c| c.primary.ccursor.index)
                     .unwrap_or_else(|| self.input.chars().count());
-                self.completion_update(cursor, resp.has_focus());
-                let consumed = self.completion_draw(ui, action);
+                self.completion_update(ui, owner, cursor, resp.has_focus());
+                let consumed = self.completion_draw(ui, owner, action);
 
                 let clock_clicked = composer_button(ui, h, |ui| {
                     let tex = self.icon_texture(ui.ctx(), "clock");
@@ -3742,7 +3777,8 @@ impl Gui {
             pending_mentions: Vec::new(),
             composer_rect: egui::Rect::NOTHING,
             composer_id: None,
-            complete_in_thread: false,
+            complete_owner: None,
+            complete_rect: None,
             thread_rect: egui::Rect::NOTHING,
             unread_marks: Vec::new(),
             unread_above: UnreadCount::default(),
@@ -5766,8 +5802,8 @@ impl Gui {
     ///
     /// It has to be called **before** drawing the composer: `TextEdit` consumes
     /// Enter and Tab, and after it there is nothing left to intercept.
-    fn completion_keys(&mut self, ui: &mut egui::Ui) -> Option<CompletionKey> {
-        if self.complete_items.is_empty() {
+    fn completion_keys(&mut self, ui: &mut egui::Ui, owner: egui::Id) -> Option<CompletionKey> {
+        if self.complete_owner != Some(owner) || self.complete_items.is_empty() {
             return None;
         }
         ui.input_mut(|i| {
@@ -5790,16 +5826,48 @@ impl Gui {
         })
     }
 
+    /// Is a click on our own popup in flight?
+    ///
+    /// egui takes the focus off the focused widget as soon as a mouse button
+    /// goes down anywhere outside it (`Context::create_widget`), and the popup
+    /// sits *above* the composer, so pressing an entry unfocuses the composer
+    /// in that same frame. If the list were cleared then, the entry would stop
+    /// being drawn before the button came back up and `clicked()` — which fires
+    /// on the release — could never reach it. No mention was selectable with the
+    /// mouse at all; this is what keeps the popup alive across the click.
+    fn popup_click_in_flight(&self, ui: &egui::Ui) -> bool {
+        let Some(rect) = self.complete_rect else {
+            return false;
+        };
+        ui.input(|i| {
+            i.pointer.interact_pos().is_some_and(|p| rect.contains(p))
+                && (i.pointer.any_down() || i.pointer.any_released())
+        })
+    }
+
     /// Recomputes the entries from what is being typed.
-    fn completion_update(&mut self, cursor: usize, focused: bool) {
+    fn completion_update(&mut self, ui: &egui::Ui, owner: egui::Id, cursor: usize, focused: bool) {
+        // A click on our popup is being made: keep every bit of state exactly
+        // as it is until the release has been handled.
+        if self.complete_owner == Some(owner) && self.popup_click_in_flight(ui) {
+            return;
+        }
+        // The other composer's completion. Both are drawn in the same frame
+        // when a thread is open, and the one without the focus must not touch
+        // the other's state.
+        if self.complete_owner.is_some_and(|o| o != owner) {
+            return;
+        }
         self.complete_items.clear();
         self.complete_span = None;
+        self.complete_rect = None;
+        self.complete_owner = None;
         if !focused {
             return;
         }
         // The cursor is in characters, the text in bytes. Work on whichever
         // composer currently has focus.
-        let text: &str = if self.complete_in_thread {
+        let text: &str = if owner == thread_composer_id() {
             &self.thread_input
         } else {
             &self.input
@@ -5829,6 +5897,7 @@ impl Gui {
             self.complete_sel = self.complete_sel.min(items.len() - 1);
             self.complete_span = Some((0, 1 + frag.len()));
             self.complete_items = items;
+            self.complete_owner = Some(owner);
             return;
         }
 
@@ -5868,16 +5937,24 @@ impl Gui {
         self.complete_sel = self.complete_sel.min(items.len() - 1);
         self.complete_span = Some((at, at + sigil.len_utf8() + frag.len()));
         self.complete_items = items;
+        self.complete_owner = Some(owner);
     }
 
     /// Draws the popup and applies the choice. True if it consumed the Enter.
-    fn completion_draw(&mut self, ui: &mut egui::Ui, action: Option<CompletionKey>) -> bool {
-        if self.complete_items.is_empty() {
+    fn completion_draw(
+        &mut self,
+        ui: &mut egui::Ui,
+        owner: egui::Id,
+        action: Option<CompletionKey>,
+    ) -> bool {
+        if self.complete_owner != Some(owner) || self.complete_items.is_empty() {
             return false;
         }
         match action {
             Some(CompletionKey::Cancel) => {
                 self.complete_items.clear();
+                self.complete_owner = None;
+                self.complete_rect = None;
                 return true;
             }
             Some(CompletionKey::Down) => {
@@ -5896,7 +5973,7 @@ impl Gui {
         // Anchored above the composer: inside the bottom panel the
         // layout coordinates are not enough to place it.
         let top = self.composer_rect.left_top();
-        egui::Area::new(egui::Id::new("completamento"))
+        let area = egui::Area::new(egui::Id::new("completamento"))
             .order(egui::Order::Foreground)
             .fixed_pos(egui::pos2(top.x, top.y - 8.0 - 22.0 * items.len() as f32))
             .show(ui.ctx(), |ui| {
@@ -5909,6 +5986,9 @@ impl Gui {
                     }
                 });
             });
+        // Remembered for `popup_click_in_flight`: next frame this is how a press
+        // on an entry is told from a press anywhere else.
+        self.complete_rect = Some(area.response.rect);
 
         if let Some(i) = chosen {
             if let Some((a, b)) = self.complete_span {
@@ -5917,7 +5997,7 @@ impl Gui {
                 // applied on send.
                 let inserted = format!("{visible} ");
                 let at_char = {
-                    let buf = if self.complete_in_thread {
+                    let buf = if owner == thread_composer_id() {
                         &mut self.thread_input
                     } else {
                         &mut self.input
@@ -5928,12 +6008,18 @@ impl Gui {
                 self.pending_mentions
                     .push((visible.clone(), slack_form.clone()));
 
+                // Chosen with the mouse, the composer lost the focus to the
+                // click (see `popup_click_in_flight`): give it back, or you
+                // would have to click into the box again to go on typing.
+                ui.ctx().memory_mut(|m| m.request_focus(owner));
                 // The cursor goes after what was inserted, otherwise it stays
                 // where it was and you go on typing in the middle of the mention.
                 self.set_cursor(ui.ctx(), at_char);
             }
             self.complete_items.clear();
             self.complete_span = None;
+            self.complete_rect = None;
+            self.complete_owner = None;
             self.complete_sel = 0;
             return true;
         }
@@ -6691,6 +6777,12 @@ impl Gui {
                         }
                     }
                     Span::Channel { id, label } => {
+                        // The reference carries an id and, only sometimes, a
+                        // name: resolve it against the workspace list, or a
+                        // channel you tagged yourself reads as a raw id when
+                        // Slack echoes the message back. See
+                        // `channel_mention_label`.
+                        let label = channel_mention_label(id, label, &self.snap.channels);
                         // A channel reference opens that channel, as in the
                         // official client.
                         let text = egui::RichText::new(format!("#{label}"))
@@ -6701,7 +6793,9 @@ impl Gui {
                                     .sense(egui::Sense::click())
                                     .selectable(false),
                             )
-                            .on_hover_text(t!("gui.go_to_channel", name = label).to_string())
+                            .on_hover_text(
+                                t!("gui.go_to_channel", name = label.as_str()).to_string(),
+                            )
                             .on_hover_cursor(egui::CursorIcon::PointingHand);
                         if r.clicked() {
                             *clicked_channel = Some((id.clone(), label.clone()));
@@ -7615,19 +7709,21 @@ impl Gui {
                         // Same mention (`@`) and channel (`#`) completion as the
                         // main composer: the keys are taken before the TextEdit
                         // so Enter/Tab pick an entry instead of sending.
-                        let action = self.completion_keys(ui);
+                        let owner = thread_composer_id();
+                        let action = self.completion_keys(ui, owner);
                         // Bound the box past the row cap (see the main composer):
                         // the thread panel is narrow, so a long reply wraps into
                         // more lines and used to make the row taller than the panel,
                         // pushing Send off it. A normal reply is unchanged.
-                        let lock = !self.complete_items.is_empty();
+                        let lock =
+                            self.complete_owner == Some(owner) && !self.complete_items.is_empty();
                         let hint = t!("gui.reply_in_thread_hint").to_string();
                         let mut text_edit = |ui: &mut egui::Ui| {
                             egui::TextEdit::multiline(&mut self.thread_input)
                                 // Fixed id: see the main composer. The thread
                                 // composer shares the frame with it, so the two
                                 // must not collide.
-                                .id(egui::Id::new("thread_composer_input"))
+                                .id(owner)
                                 .desired_rows(1)
                                 .desired_width(w)
                                 .lock_focus(lock)
@@ -7653,10 +7749,8 @@ impl Gui {
                             .cursor_range
                             .map(|c| c.primary.ccursor.index)
                             .unwrap_or_else(|| self.thread_input.chars().count());
-                        self.complete_in_thread = true;
-                        self.completion_update(cursor, resp.has_focus());
-                        let consumed = self.completion_draw(ui, action);
-                        self.complete_in_thread = false;
+                        self.completion_update(ui, owner, cursor, resp.has_focus());
+                        let consumed = self.completion_draw(ui, owner, action);
                         let send_tex = self.icon_texture(ui.ctx(), "send");
                         let send_icon = egui::Image::new(&send_tex)
                             .fit_to_exact_size(egui::vec2(COMPOSER_ICON, COMPOSER_ICON))
@@ -10410,6 +10504,53 @@ mod label_tests {
 }
 
 #[cfg(test)]
+mod channel_mention_tests {
+    use super::{ChannelRow, channel_mention_label};
+
+    fn row(id: &str, name: &str) -> ChannelRow {
+        ChannelRow {
+            id: id.to_string(),
+            name: name.to_string(),
+            is_dm: false,
+            unread: false,
+            mentions: 0,
+            user: None,
+        }
+    }
+
+    /// The bug as it was reported: you tag `#generale`, Slack echoes the
+    /// message back as `<#C1>` with no name in it, and the id was shown raw.
+    #[test]
+    fn an_id_without_a_name_is_resolved_from_the_workspace() {
+        let channels = vec![row("C1", "generale"), row("C2", "random")];
+        assert_eq!(channel_mention_label("C1", "C1", &channels), "generale");
+    }
+
+    /// A reference that does carry a name is still shown by the *current* one,
+    /// so a renamed channel does not read by the name frozen in an old message.
+    #[test]
+    fn the_workspace_name_wins_over_the_one_in_the_message() {
+        let channels = vec![row("C1", "generale")];
+        assert_eq!(channel_mention_label("C1", "vecchio-nome", &channels), "generale");
+    }
+
+    /// An id in no list: the message's own label is all there is.
+    #[test]
+    fn an_unknown_channel_keeps_the_label_from_the_message() {
+        let channels = vec![row("C1", "generale")];
+        assert_eq!(channel_mention_label("C9", "altrove", &channels), "altrove");
+        assert_eq!(channel_mention_label("C9", "C9", &channels), "C9");
+    }
+
+    /// A row with no name is no better than the id: keep the message's label.
+    #[test]
+    fn a_nameless_row_does_not_blank_the_mention() {
+        let channels = vec![row("C1", "")];
+        assert_eq!(channel_mention_label("C1", "C1", &channels), "C1");
+    }
+}
+
+#[cfg(test)]
 mod style_tests {
     use super::*;
 
@@ -11096,6 +11237,106 @@ mod snapshot_tests {
             "ab",
             "the second letter was dropped: the search field lost the focus when \
              the clear button appeared"
+        );
+    }
+
+    /// The app driven by `egui_kittest` with the `Gui` itself as the harness
+    /// state, so a test can read what typing and clicking actually did to it.
+    fn driven_gui<'a>(gui: Gui) -> egui_kittest::Harness<'a, Gui> {
+        let mut ready = false;
+        egui_kittest::Harness::builder()
+            .with_size(egui::vec2(1200.0, 820.0))
+            .with_pixels_per_point(1.0)
+            .build_state(
+                move |ctx, gui: &mut Gui| {
+                    rust_i18n::set_locale("it");
+                    if !ready {
+                        install_fonts(ctx);
+                        install_style(ctx);
+                        ctx.style_mut(|s| s.animation_time = 0.0);
+                        ready = true;
+                        return;
+                    }
+                    gui.draw(ctx);
+                },
+                gui,
+            )
+    }
+
+    /// Types one character per frame into whichever composer has the focus.
+    fn type_text(h: &mut egui_kittest::Harness<'_, Gui>, text: &str) {
+        for c in text.chars() {
+            h.input_mut().events.push(egui::Event::Text(c.to_string()));
+            h.run();
+        }
+    }
+
+    /// Choosing a mention with the **mouse** must insert it.
+    ///
+    /// Regression guard: egui drops a widget's focus as soon as a mouse button
+    /// goes down outside it, and the popup sits above the composer. The
+    /// completion used to be cleared whenever the composer was unfocused, so
+    /// the entry stopped being drawn on the press and the release never found
+    /// anything to click — no mention could be picked with the mouse at all.
+    #[test]
+    fn a_mention_can_be_chosen_with_the_mouse() {
+        let (_rt, gui) = demo_gui();
+        let mut h = driven_gui(gui);
+        h.run();
+        h.ctx.memory_mut(|m| m.request_focus(main_composer_id()));
+        h.run();
+        type_text(&mut h, "@gi");
+        assert_eq!(h.state().input, "@gi", "the composer did not take the typing");
+
+        use egui_kittest::kittest::Queryable;
+        h.get_by_label("@Giulia Conti").simulate_click();
+        h.run();
+        assert_eq!(
+            h.state().input,
+            "@Giulia Conti ",
+            "clicking the entry did not insert the mention"
+        );
+        assert!(
+            h.ctx.memory(|m| m.has_focus(main_composer_id())),
+            "the composer did not get the focus back after the click"
+        );
+    }
+
+    /// The same, with the keyboard, in a thread.
+    ///
+    /// Regression guard: both composers are drawn in the same frame when a
+    /// thread is open and they share one completion state. The main composer is
+    /// drawn first: it consumed the Enter the popup needed and then cleared the
+    /// list because it had no focus, so in a thread the choice never landed —
+    /// and the Enter was gone, so the reply was not sent either.
+    #[test]
+    fn a_mention_in_a_thread_is_not_stolen_by_the_main_composer() {
+        let (_rt, gui) = demo_gui();
+        let mut h = driven_gui(gui);
+        h.run();
+        assert!(
+            h.state().snap.thread_parent.is_some(),
+            "the demo workspace is expected to open with a thread"
+        );
+        h.ctx.memory_mut(|m| m.request_focus(thread_composer_id()));
+        h.run();
+        type_text(&mut h, "@gi");
+        assert_eq!(
+            h.state().thread_input,
+            "@gi",
+            "the thread composer did not take the typing"
+        );
+
+        h.press_key(egui::Key::Enter);
+        h.run();
+        assert_eq!(
+            h.state().thread_input,
+            "@Giulia Conti ",
+            "Enter did not choose the entry: the main composer ate the key"
+        );
+        assert!(
+            h.state().input.is_empty(),
+            "the mention landed in the main composer instead of the thread"
         );
     }
 
