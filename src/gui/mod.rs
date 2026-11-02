@@ -68,6 +68,20 @@ fn downscale_thumbnail(rgba: &[u8], width: u32, height: u32) -> Option<(u32, u32
     Some((tw, th, resized.into_raw()))
 }
 
+/// Right-click on a link: copy its address.
+///
+/// The address is what the link hides — the text reads "the docs", the URL is
+/// elsewhere — so without this the only way to get it was to open the link and
+/// copy it from the browser.
+fn copy_url_menu(r: &egui::Response, url: &str) {
+    r.context_menu(|ui| {
+        if ui.button(t!("gui.copy_address").to_string()).clicked() {
+            ui.ctx().copy_text(url.to_string());
+            ui.close_menu();
+        }
+    });
+}
+
 /// The main composer's fixed widget id — also the key its completion is
 /// owned by. Fixed, not egui's automatic one: see the `TextEdit` that uses it.
 fn main_composer_id() -> egui::Id {
@@ -2028,6 +2042,15 @@ struct Gui {
     /// Set on the frame Ctrl+K is pressed to put the caret in the sidebar
     /// filter — the quick channel switcher.
     sidebar_focus: bool,
+    /// The conversation and the thread drawn on the previous frame, to notice
+    /// when either one is opened.
+    last_channel: Option<String>,
+    last_thread: Option<String>,
+    /// Set when a conversation (or a thread) has just been opened: its composer
+    /// takes the caret on this frame, so you can start writing straight away
+    /// instead of clicking into the box first.
+    composer_focus: bool,
+    thread_focus: bool,
     /// The last status message seen and when it changed: the line beside the
     /// connection dot shows only briefly, then fades.
     status_seen: String,
@@ -2534,6 +2557,24 @@ impl Gui {
         #[cfg(feature = "mods")]
         self.flush_settings();
         self.snap.refresh_from(self.app.state());
+
+        // Opening a conversation — from the sidebar, from Ctrl+K, from a jump
+        // out of search or mentions — or opening a thread puts the caret in
+        // that composer. Noticed as a *change* between frames rather than
+        // hooked onto each of the half-dozen call sites that can select a
+        // conversation, so no way in is left out. Keyed by the channel's id and
+        // the thread's `ts`: the selection is an index, and the list reorders
+        // under it on its own (a new message, a channel joined), which is not
+        // an opening and must not steal the caret.
+        let channel = self.current_channel();
+        if channel.is_some() && channel != self.last_channel {
+            self.composer_focus = true;
+        }
+        self.last_channel = channel;
+        if self.snap.thread_parent.is_some() && self.snap.thread_parent != self.last_thread {
+            self.thread_focus = true;
+        }
+        self.last_thread = self.snap.thread_parent.clone();
 
         // A theme mod may have changed the palette (on load/reload): apply it now
         // that the snapshot reflects it, before this frame is drawn.
@@ -3314,6 +3355,16 @@ impl Gui {
                 // area's **viewport**, not its possibly taller content).
                 self.composer_rect = viewport;
                 self.composer_id = Some(resp.id);
+                // The conversation was just opened: take the caret, and put it
+                // **after** whatever is already in the box. A `TextEdit` that
+                // gains focus while empty stores a caret at 0, and the
+                // conversation's saved draft is restored right after: without
+                // this you would be typing at the start of your own draft.
+                if self.composer_focus {
+                    resp.request_focus();
+                    self.set_cursor(ui.ctx(), self.input.chars().count());
+                    self.composer_focus = false;
+                }
 
                 let cursor = out
                     .cursor_range
@@ -3769,6 +3820,10 @@ impl Gui {
             find_scroll: None,
             find_focus: false,
             sidebar_focus: false,
+            last_channel: None,
+            last_thread: None,
+            composer_focus: false,
+            thread_focus: false,
             status_seen: String::new(),
             status_at: None,
             complete_sel: 0,
@@ -6463,11 +6518,11 @@ impl Gui {
                                         ui.visuals().hyperlink_color,
                                         Wrap::Words,
                                     )
-                                    .sense(egui::Sense::click())
-                                    .selectable(false),
+                                    .sense(egui::Sense::click()),
                                 )
                                 .on_hover_text(&a.title_link)
                                 .on_hover_cursor(egui::CursorIcon::PointingHand);
+                            copy_url_menu(&r, &a.title_link);
                             if r.clicked() {
                                 ui.ctx().open_url(egui::OpenUrl::new_tab(&a.title_link));
                             }
@@ -6724,6 +6779,12 @@ impl Gui {
                         // `hyperlink_to` does not wrap: we draw a label that
                         // does and open the URL by hand.
                         let f = egui::TextStyle::Body.resolve(ui.style());
+                        // Selectable, like the text around it: `Label` unions
+                        // the click sense with the selection one, so the link
+                        // still opens and a drag across it selects. Marked
+                        // `selectable(false)`, a link was a hole in the middle
+                        // of a message — a selection could not cross it, and one
+                        // that started on it selected nothing at all.
                         let r = ui
                             .add(
                                 wrapped_emph(
@@ -6733,11 +6794,11 @@ impl Gui {
                                     emph,
                                     Wrap::Anywhere,
                                 )
-                                .sense(egui::Sense::click())
-                                .selectable(false),
+                                .sense(egui::Sense::click()),
                             )
                             .on_hover_text(url)
                             .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        copy_url_menu(&r, url);
                         if r.clicked() {
                             match crate::app::parse_message_permalink(&url) {
                                 Some((channel, ts)) => *clicked_link = Some((channel, ts)),
@@ -6765,7 +6826,6 @@ impl Gui {
                         if known.is_some() {
                             let r = label
                                 .sense(egui::Sense::click())
-                                .selectable(false)
                                 .ui(ui)
                                 .on_hover_text(t!("gui.write_to", who = name).to_string())
                                 .on_hover_cursor(egui::CursorIcon::PointingHand);
@@ -6788,11 +6848,7 @@ impl Gui {
                         let text = egui::RichText::new(format!("#{label}"))
                             .color(ui.visuals().hyperlink_color);
                         let r = ui
-                            .add(
-                                egui::Label::new(text)
-                                    .sense(egui::Sense::click())
-                                    .selectable(false),
-                            )
+                            .add(egui::Label::new(text).sense(egui::Sense::click()))
                             .on_hover_text(
                                 t!("gui.go_to_channel", name = label.as_str()).to_string(),
                             )
@@ -7745,6 +7801,15 @@ impl Gui {
                         let resp = out.response;
                         self.composer_rect = viewport;
                         self.composer_id = Some(resp.id);
+                        // The thread was just opened: take the caret, after the
+                        // existing text (see the main composer). Drawn after it,
+                        // so when a jump opens both at once the thread — the
+                        // thing asked for — wins.
+                        if self.thread_focus {
+                            resp.request_focus();
+                            self.set_cursor(ui.ctx(), self.thread_input.chars().count());
+                            self.thread_focus = false;
+                        }
                         let cursor = out
                             .cursor_range
                             .map(|c| c.primary.ccursor.index)
@@ -11271,6 +11336,301 @@ mod snapshot_tests {
         }
     }
 
+    /// Opening a conversation puts the caret in its composer, so you can start
+    /// writing without clicking into the box first. Whatever opened it — the
+    /// sidebar, Ctrl+K, a jump out of search — reaches the GUI as a change of
+    /// the selected conversation, which is what this drives.
+    #[test]
+    fn opening_a_conversation_focuses_its_composer() {
+        let (_rt, gui) = demo_gui();
+        with_state(&gui, |s| {
+            s.thread_parent_ts = None;
+            s.thread_messages.clear();
+        });
+        let mut h = driven_gui(gui);
+        h.run();
+        // Somewhere else entirely: the search field, as Ctrl+F leaves it.
+        h.ctx
+            .memory_mut(|m| m.request_focus(egui::Id::new("qualcosa_altro")));
+        h.run();
+
+        let before = h.state().snap.selected;
+        with_state(h.state(), |s| {
+            s.selected_channel = if before == 0 { 1 } else { 0 };
+        });
+        h.run();
+        assert_ne!(
+            h.state().snap.selected,
+            before,
+            "the test did not actually open another conversation"
+        );
+        assert!(
+            h.ctx.memory(|m| m.has_focus(main_composer_id())),
+            "opening a conversation left the caret out of the composer"
+        );
+    }
+
+    /// The caret lands **after** the conversation's draft, not before it.
+    ///
+    /// The draft is restored on the same frame the conversation opens, just
+    /// before the composer is drawn; a `TextEdit` that took the focus while
+    /// empty has a caret at 0, so without putting it at the end you would type
+    /// at the start of your own unsent text.
+    #[test]
+    fn the_caret_lands_after_a_restored_draft() {
+        let (_rt, gui) = demo_gui();
+        with_state(&gui, |s| {
+            s.thread_parent_ts = None;
+            s.thread_messages.clear();
+        });
+        let mut h = driven_gui(gui);
+        h.run();
+
+        let first = h.state().snap.selected;
+        let other = if first == 0 { 1 } else { 0 };
+        type_text(&mut h, "ciao");
+        assert_eq!(h.state().input, "ciao", "the draft was not typed");
+
+        // Away and back: the draft is stashed, then restored on reopening.
+        with_state(h.state(), |s| s.selected_channel = other);
+        h.run();
+        with_state(h.state(), |s| s.selected_channel = first);
+        h.run();
+        assert_eq!(h.state().input, "ciao", "the draft did not come back");
+
+        let state = egui::TextEdit::load_state(&h.ctx, main_composer_id())
+            .expect("the composer has stored state");
+        let caret = state
+            .cursor
+            .char_range()
+            .expect("the composer has a caret")
+            .primary
+            .index;
+        assert_eq!(
+            caret,
+            "ciao".chars().count(),
+            "the caret sits inside the restored draft instead of after it"
+        );
+    }
+
+    /// The same for a thread: its own composer takes the caret, not the main
+    /// one, which is drawn first in the same frame.
+    #[test]
+    fn opening_a_thread_focuses_the_thread_composer() {
+        let (_rt, gui) = demo_gui();
+        with_state(&gui, |s| {
+            s.thread_parent_ts = None;
+            s.thread_messages.clear();
+        });
+        let mut h = driven_gui(gui);
+        h.run();
+
+        let parent = h
+            .state()
+            .snap
+            .messages
+            .first()
+            .map(|m| m.ts.clone())
+            .expect("the demo conversation has messages");
+        with_state(h.state(), |s| {
+            s.thread_parent_ts = Some(parent);
+        });
+        h.run();
+        assert!(
+            h.ctx.memory(|m| m.has_focus(thread_composer_id())),
+            "opening a thread left the caret out of the thread composer"
+        );
+        assert!(
+            !h.ctx.memory(|m| m.has_focus(main_composer_id())),
+            "the main composer took the caret meant for the thread"
+        );
+    }
+
+    /// A conversation reordering under the selection — a new message arrives,
+    /// a channel is joined — is not an opening: the caret must stay where the
+    /// user put it. The index moves, the conversation does not.
+    #[test]
+    fn a_list_reorder_does_not_steal_the_caret() {
+        let (_rt, gui) = demo_gui();
+        with_state(&gui, |s| {
+            s.thread_parent_ts = None;
+            s.thread_messages.clear();
+        });
+        let mut h = driven_gui(gui);
+        h.run();
+        h.ctx
+            .memory_mut(|m| m.request_focus(egui::Id::new("qualcosa_altro")));
+        h.run();
+
+        // The open conversation moves down one slot because another is
+        // inserted above it; `selected_channel` follows it, so the *same*
+        // conversation stays open at a different index.
+        with_state(h.state(), |s| {
+            let open = s.channels[s.selected_channel].clone();
+            let mut list = (*s.channels).clone();
+            list.insert(0, open);
+            s.channels = Arc::new(list);
+            s.selected_channel += 1;
+        });
+        h.run();
+        assert!(
+            !h.ctx.memory(|m| m.has_focus(main_composer_id())),
+            "a reordering of the list stole the caret as if a conversation had been opened"
+        );
+    }
+
+    /// Drags the pointer across a horizontal stretch, as selecting text does.
+    fn drag_across(h: &mut egui_kittest::Harness<'_, Gui>, from: egui::Pos2, to: egui::Pos2) {
+        h.input_mut().events.extend([
+            egui::Event::PointerMoved(from),
+            egui::Event::PointerButton {
+                pos: from,
+                button: egui::PointerButton::Primary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+        ]);
+        h.run();
+        h.input_mut().events.push(egui::Event::PointerMoved(to));
+        h.run();
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: to,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        h.run();
+    }
+
+    /// What a Ctrl+C would put on the clipboard right now.
+    ///
+    /// One `step`, not `run`: the copy is emitted by the frame that consumes
+    /// the event, and `run` draws a second frame whose output is empty again.
+    fn copied(h: &mut egui_kittest::Harness<'_, Gui>) -> String {
+        h.input_mut().events.push(egui::Event::Copy);
+        h.step();
+        h.output().platform_output.copied_text.clone()
+    }
+
+    /// The horizontal middle of a node, inset so the drag starts on the glyphs.
+    fn span_ends(node: &egui_kittest::kittest::Node<'_>) -> (egui::Pos2, egui::Pos2) {
+        let b = node.raw_bounds().expect("the node has bounds");
+        let y = ((b.y0 + b.y1) / 2.0) as f32;
+        (
+            egui::pos2((b.x0 + 2.0) as f32, y),
+            egui::pos2((b.x1 - 2.0) as f32, y),
+        )
+    }
+
+    /// A link inside a message must be selectable like the text around it.
+    ///
+    /// Regression guard: links, mentions and channel references were drawn
+    /// `selectable(false)`, which made each one a hole in the message — a
+    /// selection could not cross it, and one that started on it selected
+    /// nothing at all.
+    #[test]
+    fn a_link_can_be_selected_like_the_text_around_it() {
+        let (_rt, gui) = demo_gui();
+        let mut h = driven_gui(gui);
+        h.run();
+
+        // A link that is actually on screen: the conversation opens scrolled to
+        // the bottom, and a node above the viewport has coordinates no pointer
+        // can reach.
+        use egui_kittest::kittest::Queryable;
+        let (from, to) = span_ends(&h.get_by_label_contains("Deploy #128"));
+        drag_across(&mut h, from, to);
+        assert_eq!(
+            copied(&mut h),
+            "Deploy #128 riuscito",
+            "a drag that starts on a link selects nothing"
+        );
+    }
+
+    /// Plain message text stays selectable: the guard above must not be read as
+    /// "selection works" when only the links do.
+    #[test]
+    fn message_text_can_be_selected() {
+        let (_rt, gui) = demo_gui();
+        let mut h = driven_gui(gui);
+        h.run();
+
+        use egui_kittest::kittest::Queryable;
+        let (from, to) = span_ends(&h.get_by_label_contains("Chiuso e mergiato"));
+        drag_across(&mut h, from, to);
+        assert_eq!(copied(&mut h), "Chiuso e mergiato");
+    }
+
+    /// Right-click on a link offers its address, and copies it.
+    ///
+    /// The address is what a link hides — the text reads "PR #42" — so without
+    /// the menu the only way to get it was to open the link in a browser.
+    #[test]
+    fn right_click_on_a_link_copies_its_address() {
+        let (_rt, gui) = demo_gui();
+        let mut h = driven_gui(gui);
+        h.run();
+
+        use egui_kittest::kittest::Queryable;
+        let (from, _) = span_ends(&h.get_by_label_contains("Deploy #128"));
+        h.input_mut().events.extend([
+            egui::Event::PointerMoved(from),
+            egui::Event::PointerButton {
+                pos: from,
+                button: egui::PointerButton::Secondary,
+                pressed: true,
+                modifiers: Default::default(),
+            },
+            egui::Event::PointerButton {
+                pos: from,
+                button: egui::PointerButton::Secondary,
+                pressed: false,
+                modifiers: Default::default(),
+            },
+        ]);
+        h.run();
+
+        // The menu entry is clicked the way a hand does it: move onto it, then
+        // press and release on separate frames.
+        let at = {
+            let b = h
+                .get_by_label_contains("Copia indirizzo")
+                .raw_bounds()
+                .expect("the menu entry has bounds");
+            egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+        };
+        h.input_mut().events.push(egui::Event::PointerMoved(at));
+        h.run();
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        h.run();
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        // The copy is emitted by whichever frame handles the release; step until
+        // something is put on the clipboard rather than guessing which one.
+        let mut copied = String::new();
+        for _ in 0..4 {
+            h.step();
+            let t = h.output().platform_output.copied_text.clone();
+            if !t.is_empty() {
+                copied = t;
+                break;
+            }
+        }
+        assert_eq!(
+            copied, "https://example.com/deploys/128",
+            "the menu did not copy the link's address"
+        );
+    }
+
     /// Choosing a mention with the **mouse** must insert it.
     ///
     /// Regression guard: egui drops a widget's focus as soon as a mouse button
@@ -12893,6 +13253,11 @@ mod snapshot_tests {
         h.state_mut().input = "/rem".to_string();
         let id = h.state().composer_id.expect("composer id");
         h.ctx.memory_mut(|m| m.request_focus(id));
+        // The text is injected rather than typed, so the caret has to be put
+        // where typing would have left it: at the end. Without this it sits at
+        // 0 — the composer is focused from the first frame, when it was still
+        // empty — and the completion sees no command before the caret.
+        h.state().set_cursor(&h.ctx, "/rem".chars().count());
         h.run();
         snapshot(&h, "slash_completion");
     }

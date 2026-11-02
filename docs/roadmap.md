@@ -9,6 +9,30 @@ The phases below are kept as they were written, because they document the
 reasoning. A few claims inside them are older than this header: where they have
 been overtaken, an inline note says so.
 
+## Update — 2026-11-03 — 0.9.3
+
+- **0.9.3: the caret goes where you are about to write.** Opening a
+  conversation — sidebar, Ctrl+K, a jump out of search or mentions — or opening
+  a thread puts the caret in that composer, so you can start typing at once.
+  Noticed as a change of the open conversation between frames rather than hooked
+  onto each of the half-dozen call sites, so no way in is left out; keyed by the
+  channel's id, because the sidebar reorders under the selection on its own and
+  a reordering must not steal the caret.
+  - The caret lands **after** the conversation's restored draft. A `TextEdit`
+    that takes the focus while empty stores a caret at 0, and the draft arrives
+    on the same frame, just before the composer is drawn: without this you would
+    be typing at the start of your own unsent text.
+  - The 38 UI snapshots were re-recorded: the composer now draws its focus ring.
+
+- **0.9.3: text in a message can be selected, and a link's address copied.**
+  Links, mentions and channel references were drawn `selectable(false)`, which
+  made each one a hole in the message: a selection could not cross it, and one
+  that started on it selected nothing — so whether selecting worked depended on
+  where you began the drag. `Label` unions the click sense with the selection
+  one, so they stay clickable. Right-click on a link now offers **Copy address**
+  (`gui.copy_address`), on message links and on attachment titles: the address
+  is what a link hides, and the only way to get it was to open it in a browser.
+
 ## Update — 2026-11-03 — 0.9.2
 
 - **0.9.2: the `@` / `#` completion is usable again.**
