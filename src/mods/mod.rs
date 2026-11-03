@@ -7544,6 +7544,14 @@ mod tests {
             &std::sync::Arc::new(super::Directory::empty()),
             &root,
         );
+        // One dispatch before the clock starts. The first one instantiates the
+        // module, and on a loaded machine that alone can swallow the window:
+        // the test then measures how fast the machine is, not whether the
+        // background lane gets starved, and fails on a busy CI runner while
+        // passing on an idle laptop.
+        let warm = super::Msg::text_only("0.000000", "U0", "hi");
+        let _ = host.dispatch_batch("C0T", &[warm]);
+
         let start = std::time::Instant::now();
         let mut n = 0u64;
         while start.elapsed() < std::time::Duration::from_millis(600) {
