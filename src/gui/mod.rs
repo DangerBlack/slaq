@@ -1474,6 +1474,8 @@ struct Snapshot {
     avatars: Arc<HashMap<String, String>>,
     bot_users: Arc<std::collections::HashSet<String>>,
     emoji: Arc<HashMap<String, String>>,
+    /// User groups by id, to name a group mention that arrived without a label.
+    usergroups: Arc<HashMap<String, String>>,
     folders: Arc<Vec<crate::app::sections::Folder>>,
     collapsed: Arc<std::collections::HashSet<String>>,
     favorites: Arc<std::collections::HashSet<String>>,
@@ -1615,6 +1617,7 @@ impl Snapshot {
         self.avatars = s.avatars.clone();
         self.bot_users = s.bot_users.clone();
         self.emoji = s.emoji.clone();
+        self.usergroups = s.usergroups.clone();
         self.folders = s.folders.clone();
         self.collapsed = s.collapsed.clone();
         self.favorites = s.favorites.clone();
@@ -3031,7 +3034,14 @@ impl Gui {
                 // folders are there to find your way around, not to filter.
                 if !self.search.trim().is_empty() {
                     let q = self.search.to_lowercase();
-                    egui::ScrollArea::vertical().show(ui, |ui| self.search_results(ui, &q));
+                    // `auto_shrink` defaults to shrinking **both** ways, so the
+                    // area ends where the longest result ends and takes its
+                    // scrollbar with it: the bar sat over a hundred pixels
+                    // inside the panel, next to the text instead of at the
+                    // panel's edge, and read as misplaced.
+                    egui::ScrollArea::vertical()
+                        .auto_shrink([false; 2])
+                        .show(ui, |ui| self.search_results(ui, &q));
                     return;
                 }
 
@@ -6583,7 +6593,7 @@ impl Gui {
                     // made the panel grow a sliver every frame.
                     let lines = code.lines().count().max(1) as f32;
                     let h = lines * ui.text_style_height(&egui::TextStyle::Monospace) + 12.0;
-                    egui::Frame::none()
+                    let block = egui::Frame::none()
                         .fill(pal().code_bg)
                         .inner_margin(6.0)
                         .rounding(4.0)
@@ -6597,11 +6607,69 @@ impl Gui {
                                 .id_salt(("code", code.len()))
                                 .show(ui, |ui| {
                                     ui.add(
-                                        egui::Label::new(egui::RichText::new(code).monospace())
+                                        egui::Label::new(
+                                            egui::RichText::new(code.clone()).monospace(),
+                                        )
                                             .extend(),
                                     );
                                 });
                         });
+                    // The copy button sits over the block's top-right corner
+                    // rather than in the flow: a row of its own would push the
+                    // code down and add a gap to every message that has one.
+                    // Code is the thing people take away whole — and selecting
+                    // it by hand inside a horizontal scroll is miserable.
+                    //
+                    // Painted by hand, with `interact` for the click: `Ui::put`
+                    // allocates a child ui at the given rect and leaves the
+                    // parent's cursor at *its* bottom — which is the top of the
+                    // code block. Everything after the block was then laid out
+                    // inside it, drawing over it: the paragraph between two
+                    // blocks became unreadable.
+                    //
+                    // Shown only while the pointer is over the block: it sits on
+                    // top of the code, and a narrow block has the first line
+                    // running right under it. Hidden, it also leaves that corner
+                    // free for selecting the text.
+                    let size = egui::vec2(22.0, 20.0);
+                    let at = egui::Rect::from_min_size(
+                        egui::pos2(
+                            block.response.rect.right() - size.x - 4.0,
+                            block.response.rect.top() + 4.0,
+                        ),
+                        size,
+                    );
+                    if ui.rect_contains_pointer(block.response.rect) {
+                        let id = ui.id().with(("copy_code", code.len(), at.top() as i32));
+                        let copy = ui.interact(at, id, egui::Sense::click());
+                        let fill = if copy.hovered() {
+                            pal().bg_elevated
+                        } else {
+                            pal().bg_panel
+                        };
+                        ui.painter().rect_filled(at, 4.0, fill);
+                        let tex = self.icon_texture(ui.ctx(), "copy");
+                        ui.painter().image(
+                            tex.id(),
+                            egui::Rect::from_center_size(at.center(), egui::vec2(11.0, 11.0)),
+                            egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)),
+                            ui.visuals().text_color(),
+                        );
+                        // Named for the accessibility tree: an `interact` rect has
+                        // no text of its own, so without this a screen reader — and
+                        // a test — finds nothing there.
+                        let name = t!("gui.copy_code_hover").to_string();
+                        copy.widget_info(|| {
+                            egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &name)
+                        });
+                        let copy = copy
+                            .on_hover_text(name.clone())
+                            .on_hover_cursor(egui::CursorIcon::PointingHand);
+                        if copy.clicked() {
+                            ui.ctx().copy_text(code.clone());
+                            self.snap.status = t!("gui.code_copied").to_string();
+                        }
+                    }
                 }
                 mrkdwn::Block::Quote(spans) => {
                     // A quote gets its own faint background and a left bar that
@@ -6864,6 +6932,23 @@ impl Gui {
                                 .color(pal().mention_other_fg),
                         );
                     }
+                    Span::Group { id, label } => {
+                        // Slack often sends a group mention without its label,
+                        // and then only the workspace's group list can say what
+                        // `S099…` is called. Unresolved — the list has not
+                        // arrived, or the group is gone — the id is still
+                        // better than nothing, but it reads as a name, not as
+                        // the raw `subteam^S099…` it used to.
+                        let name = label
+                            .clone()
+                            .or_else(|| self.snap.usergroups.get(id).cloned())
+                            .unwrap_or_else(|| id.clone());
+                        ui.label(
+                            egui::RichText::new(format!("@{name}"))
+                                .strong()
+                                .color(pal().mention_other_fg),
+                        );
+                    }
                     Span::Emoji(name) => self.emoji(ui, name),
                 }
             }
@@ -6960,6 +7045,7 @@ impl Gui {
             "bookmark" => include_bytes!("data/icons/bookmark.png"),
             "pin" => include_bytes!("data/icons/pin.png"),
             "clock" => include_bytes!("data/icons/clock.png"),
+            "copy" => include_bytes!("data/icons/copy.png"),
             _ => &[],
         };
         let image = image::load_from_memory(bytes)
@@ -10160,6 +10246,7 @@ pub fn run(app: App) -> Result<()> {
     if !demo {
         app.spawn_bootstrap();
         app.spawn_emoji();
+        app.spawn_usergroups();
         app.spawn_ws_pump();
     }
 
@@ -11520,6 +11607,246 @@ mod snapshot_tests {
             egui::pos2((b.x0 + 2.0) as f32, y),
             egui::pos2((b.x1 - 2.0) as f32, y),
         )
+    }
+
+    /// Clicks at a point, the way a hand does: move, press, release, each on
+    /// its own frame. Returns what ended up on the clipboard, if anything.
+    fn click_at(h: &mut egui_kittest::Harness<'_, Gui>, at: egui::Pos2) -> String {
+        h.input_mut().events.push(egui::Event::PointerMoved(at));
+        h.run();
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: true,
+            modifiers: Default::default(),
+        });
+        h.run();
+        h.input_mut().events.push(egui::Event::PointerButton {
+            pos: at,
+            button: egui::PointerButton::Primary,
+            pressed: false,
+            modifiers: Default::default(),
+        });
+        for _ in 0..4 {
+            h.step();
+            let t = h.output().platform_output.copied_text.clone();
+            if !t.is_empty() {
+                return t;
+            }
+        }
+        String::new()
+    }
+
+    /// A code block offers a copy button, and what it copies is the code
+    /// exactly — the thing people take away whole, and the thing that is
+    /// miserable to select by hand inside a horizontal scroll.
+    #[test]
+    fn a_code_block_can_be_copied_with_one_click() {
+        const CODE: &str = "fn main() {\n    println!(\"ciao\");\n}";
+        let (_rt, gui) = demo_gui();
+        with_state(&gui, |s| {
+            s.thread_parent_ts = None;
+            s.thread_messages.clear();
+            s.messages = vec![MessageEntry {
+                user: "U_MARCO".into(),
+                text: format!("```\n{CODE}\n```"),
+                ts: "1700000000.000100".into(),
+                reactions: Vec::new(),
+                thread_ts: None,
+                reply_count: None,
+                author_icon: String::new(),
+                attachments: Vec::new(),
+                files: Vec::new(),
+                actions: Vec::new(),
+                bot_id: None,
+                app_id: None,
+            }];
+        });
+        let mut h = driven_gui(gui);
+        h.run();
+
+        // One message, one code block: the demo conversation has several, and
+        // picking "the right button" by coordinates is how this test first
+        // copied the wrong block.
+        //
+        // The button only exists while the pointer is over the block, so hover
+        // the code first and look it up after — by its accessible name, which
+        // is also what a screen reader reads.
+        use egui_kittest::kittest::Queryable;
+        let over_code = {
+            let b = h
+                .get_by_label_contains("fn main()")
+                .raw_bounds()
+                .expect("the code block has bounds");
+            egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+        };
+        h.input_mut()
+            .events
+            .push(egui::Event::PointerMoved(over_code));
+        h.run();
+        let at = {
+            let b = h
+                .get_by_label_contains("Copia il codice")
+                .raw_bounds()
+                .expect("the copy button has bounds");
+            egui::pos2(((b.x0 + b.x1) / 2.0) as f32, ((b.y0 + b.y1) / 2.0) as f32)
+        };
+        let copied = click_at(&mut h, at);
+        assert_eq!(
+            copied, CODE,
+            "the copy button did not put the code on the clipboard"
+        );
+    }
+
+    /// The text between two code blocks must be drawn **after** the block, not
+    /// on top of it.
+    ///
+    /// Regression guard for a real unreadable message: the copy button was
+    /// placed with `Ui::put`, which allocates a child ui at the given rect and
+    /// leaves the parent's cursor at *its* bottom — the top of the block. Every
+    /// paragraph that followed was then laid out inside the block and painted
+    /// over it.
+    #[test]
+    fn text_after_a_code_block_is_not_drawn_over_it() {
+        let (_rt, gui) = demo_gui();
+        with_state(&gui, |s| {
+            s.thread_parent_ts = None;
+            s.thread_messages.clear();
+            s.messages = vec![MessageEntry {
+                user: "U_MARCO".into(),
+                text: "```\nmkdir -p ~/.config/bore\nchmod 600 ~/.config/bore/secret\n```\n\
+                       Method\n```\nbt 8080 20280\n```\nUsage"
+                    .into(),
+                ts: "1700000000.000100".into(),
+                reactions: Vec::new(),
+                thread_ts: None,
+                reply_count: None,
+                author_icon: String::new(),
+                attachments: Vec::new(),
+                files: Vec::new(),
+                actions: Vec::new(),
+                bot_id: None,
+                app_id: None,
+            }];
+        });
+        let mut h = driven_gui(gui);
+        h.run();
+
+        use egui_kittest::kittest::Queryable;
+        let bounds = |h: &egui_kittest::Harness<'_, Gui>, text: &str| {
+            h.get_by_label_contains(text)
+                .raw_bounds()
+                .unwrap_or_else(|| panic!("{text} has no bounds"))
+        };
+        let first = bounds(&h, "mkdir -p");
+        let method = bounds(&h, "Method");
+        let second = bounds(&h, "bt 8080");
+        let usage = bounds(&h, "Usage");
+
+        assert!(
+            method.y0 >= first.y1,
+            "\"Method\" (y0={}) is drawn inside the code block above it (y1={})",
+            method.y0,
+            first.y1
+        );
+        assert!(
+            second.y0 >= method.y1,
+            "the second code block (y0={}) is drawn over \"Method\" (y1={})",
+            second.y0,
+            method.y1
+        );
+        assert!(
+            usage.y0 >= second.y1,
+            "\"Usage\" (y0={}) is drawn inside the code block above it (y1={})",
+            usage.y0,
+            second.y1
+        );
+    }
+
+    /// The sidebar's scrollbar belongs at the **panel's** edge, not wherever
+    /// the longest result happens to end.
+    ///
+    /// Regression guard: `ScrollArea` shrinks to its content by default, so
+    /// with a search active the list ended at the widest row and took its bar
+    /// along — more than a hundred pixels inside the panel, floating beside the
+    /// text, which is exactly what it looked like: misplaced.
+    #[test]
+    fn the_search_scrollbar_sits_at_the_edge_of_the_panel() {
+        let (_rt, gui) = demo_gui();
+        let mut h = driven_gui(gui);
+        h.run();
+        // Enough matches to overflow the sidebar: the demo has a handful, a
+        // real workspace a hundred, and a bar appears only on overflow.
+        with_state(h.state(), |s| {
+            let mut list = (*s.channels).clone();
+            for i in 0..80 {
+                list.push(crate::app::ChannelEntry {
+                    id: format!("C_FAKE{i}"),
+                    name: format!("canale-a-{i:02}"),
+                    is_dm: false,
+                    unread: false,
+                    mentions: 0,
+                    user: None,
+                    last_read: String::new(),
+                    external: false,
+                });
+            }
+            s.channels = Arc::new(list);
+        });
+        h.state_mut().search = "a".to_string();
+        h.run();
+        // The bar is a floating one: it is drawn only while the pointer is
+        // over the list.
+        h.input_mut()
+            .events
+            .push(egui::Event::PointerMoved(egui::pos2(110.0, 500.0)));
+        h.run();
+        h.run();
+
+        // Where to start looking: the filter field is inset from the panel, so
+        // its right edge is near, but short of, the panel's own.
+        use egui_kittest::kittest::Queryable;
+        let panel_right = h
+            .get_by(|n| {
+                n.role() == egui::accesskit::Role::TextInput
+                    && n.raw_bounds().map(|b| b.x0 < 20.0).unwrap_or(false)
+            })
+            .raw_bounds()
+            .expect("the sidebar filter has bounds")
+            .x1 as f32;
+
+        // Find, in the image, the sidebar's own right edge and the bar.
+        //
+        // The filter field is inset from the panel, so its edge is not the
+        // panel's: take instead the rightmost column that is still untouched
+        // sidebar background — past it lies the separator and the conversation.
+        let img = egui_kittest::wgpu::TestRenderer::new().render(&h);
+        let bg = *img.get_pixel(8, 700);
+        let (top, bottom) = (260u32, 760u32);
+        let band = |x: u32, f: &dyn Fn(&image::Rgba<u8>) -> bool| {
+            (top..bottom).filter(|&y| f(img.get_pixel(x, y))).count()
+        };
+        // From well inside the list, not just the panel's edge: misplaced, the
+        // bar sits beside the text, and the test should say so rather than
+        // report that it found nothing. Text cannot be mistaken for it — a
+        // column of glyphs fills under half the band, the bar's track all of it.
+        let search = 40u32..(panel_right as u32 + 60);
+        let sidebar_right = search
+            .clone()
+            .filter(|&x| band(x, &|p| p == &bg) == (bottom - top) as usize)
+            .max()
+            .expect("the sidebar has bare background at its right edge");
+        let bar_x = search
+            .filter(|&x| x < sidebar_right)
+            .filter(|&x| band(x, &|p| p != &bg) * 10 >= (bottom - top) as usize * 9)
+            .max()
+            .expect("no scrollbar found in the sidebar");
+
+        assert!(
+            sidebar_right - bar_x <= 12,
+            "the scrollbar is at x={bar_x} while the panel ends at x={sidebar_right}: \
+             it is drawn beside the text instead of at the panel's edge"
+        );
     }
 
     /// A link inside a message must be selectable like the text around it.

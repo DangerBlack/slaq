@@ -9,6 +9,22 @@ The phases below are kept as they were written, because they document the
 reasoning. A few claims inside them are older than this header: where they have
 been overtaken, an inline note says so.
 
+## Update — 2026-11-04 — 0.9.4
+
+- **0.9.4: three things that made messages hard to read or to take away.**
+  - **Code blocks are no longer altered.** Slack linkifies URLs inside code
+    too, so a pasted link arrived as `<https://…>` and those brackets showed on
+    screen and came along on copy. They are stripped for real links only — code
+    is full of angle brackets that mean something else (`Vec<T>`, `<div>`,
+    `a < b`), and those are left exactly as they are. A code block also offers
+    a copy button now, on hover so it never covers the first line.
+  - **A group mention reads as a name.** Slack often sends `<!subteam^S099…>`
+    with no label, and the id went on screen. The workspace's groups are loaded
+    at startup (`usergroups.list`) and the id is resolved against them.
+  - **The sidebar's scrollbar is back at the panel's edge.** `ScrollArea`
+    shrinks to its content by default, so with a search active the bar sat
+    beside the longest result, dozens of pixels inside the panel.
+
 ## Open — the `webrtc` stack is nine breaking minors behind
 
 `webrtc` is pinned at 0.12 while upstream is at 0.21. Everything about calls

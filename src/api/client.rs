@@ -1378,6 +1378,47 @@ impl Client {
         Ok(resolved)
     }
 
+    /// The workspace's user groups, as id -> handle (`S099… -> "devs"`).
+    ///
+    /// Needed because Slack sometimes sends a group mention **without** the
+    /// label — a bare `<!subteam^S099…>` — and then the id is all the message
+    /// carries. The handle is what the official client shows.
+    pub async fn usergroups_list(&self) -> Result<std::collections::HashMap<String, String>> {
+        #[derive(Deserialize)]
+        struct Group {
+            id: String,
+            #[serde(default)]
+            handle: String,
+            #[serde(default)]
+            name: String,
+        }
+        #[derive(Deserialize)]
+        struct Response {
+            #[serde(default)]
+            usergroups: Vec<Group>,
+        }
+        let resp: Response = self
+            .call("usergroups.list", vec![("include_users", "false")])
+            .await?;
+        Ok(resp
+            .usergroups
+            .into_iter()
+            .filter_map(|g| {
+                // The handle is what you type (`@devs`); the name is the
+                // human title ("Developers"). Prefer the handle, fall back to
+                // the name, and skip a group that has neither.
+                let label = if !g.handle.is_empty() {
+                    g.handle
+                } else if !g.name.is_empty() {
+                    g.name
+                } else {
+                    return None;
+                };
+                Some((g.id, label))
+            })
+            .collect())
+    }
+
     /// A single user, even one who is not on our team.
     ///
     /// It is needed for whoever writes in spaces shared through Slack Connect:

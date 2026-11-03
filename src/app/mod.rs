@@ -674,6 +674,9 @@ pub struct AppState {
     pub favorites: Arc<std::collections::HashSet<String>>,
     /// emoji name -> URL, for the workspace's custom emoji only.
     pub emoji: Arc<HashMap<String, String>>,
+    /// User groups by id (`S099… -> "devs"`), to render a group mention that
+    /// arrives without its label.
+    pub usergroups: Arc<HashMap<String, String>>,
     /// user id -> connected right now. It comes from `presence_change`
     /// events and covers only the subscribed users, not the whole workspace.
     pub presence: Arc<HashMap<String, bool>>,
@@ -7165,6 +7168,27 @@ impl App {
                     state.write().await.emoji = Arc::new(map);
                 }
                 Err(e) => tracing::warn!("custom emoji not loaded: {e}"),
+            }
+        });
+    }
+
+    /// Loads the workspace's user groups.
+    ///
+    /// Like the emoji: not needed to draw the first screen, and a failure only
+    /// means a group mention keeps showing its id.
+    pub fn spawn_usergroups(&self) {
+        if !self.is_authenticated() {
+            return;
+        }
+        let api = self.api_client.clone();
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            match api.usergroups_list().await {
+                Ok(map) => {
+                    tracing::info!("{} user groups", map.len());
+                    state.write().await.usergroups = Arc::new(map);
+                }
+                Err(e) => tracing::warn!("user groups not loaded: {e}"),
             }
         });
     }

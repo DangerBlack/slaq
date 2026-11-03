@@ -35,6 +35,14 @@ pub enum Span {
     },
     /// `<!here>`, `<!channel>`, `<!everyone>`
     Broadcast(String),
+    /// A user-group mention: `<!subteam^S099…>`, with the label Slack may or
+    /// may not have put in it. The id is kept because an unlabelled one can
+    /// only be resolved against the workspace's groups, which the parser does
+    /// not have.
+    Group {
+        id: String,
+        label: Option<String>,
+    },
     /// `:name:` — a standard emoji or a workspace custom one.
     Emoji(String),
 }
@@ -55,6 +63,47 @@ fn unescape(s: &str) -> String {
     s.replace("&lt;", "<")
         .replace("&gt;", ">")
         .replace("&amp;", "&")
+}
+
+/// Removes Slack's link markup from text that must read exactly as it was
+/// typed — code, inline or in a block.
+///
+/// Slack linkifies URLs **inside code too**, so a pasted link arrives as
+/// `<https://…>` (or `<https://…|label>`). Rendered as-is, the angle brackets
+/// showed on screen and came along on copy, which makes the copied code wrong:
+/// a code block has to come out of the client exactly as it went in.
+///
+/// Only a real link is unwrapped. Code is full of angle brackets that mean
+/// something else — `Vec<T>`, `<div>`, `a < b` — and those are left alone: the
+/// inner text must carry a URL scheme. For a labelled link the label is kept,
+/// because that is what was typed.
+fn strip_link_markup(s: &str) -> String {
+    let chars: Vec<char> = s.chars().collect();
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < chars.len() {
+        if chars[i] == '<' {
+            if let Some(close) = (i + 1..chars.len()).find(|&j| chars[j] == '>') {
+                let inner: String = chars[i + 1..close].iter().collect();
+                let (url, label) = match inner.split_once('|') {
+                    Some((u, l)) => (u, Some(l)),
+                    None => (inner.as_str(), None),
+                };
+                let is_link = (url.starts_with("http://")
+                    || url.starts_with("https://")
+                    || url.starts_with("mailto:"))
+                    && !url.contains(char::is_whitespace);
+                if is_link {
+                    out.push_str(label.unwrap_or(url));
+                    i = close + 1;
+                    continue;
+                }
+            }
+        }
+        out.push(chars[i]);
+        i += 1;
+    }
+    out
 }
 
 /// The text to load into the editor when a message is edited.
@@ -105,12 +154,16 @@ pub fn parse(text: &str) -> Vec<Block> {
         let after = &after[3..];
         match after.find("```") {
             Some(end) => {
-                blocks.push(Block::CodeBlock(unescape(after[..end].trim_matches('\n'))));
+                blocks.push(Block::CodeBlock(strip_link_markup(&unescape(
+                    after[..end].trim_matches('\n'),
+                ))));
                 rest = &after[end + 3..];
             }
             None => {
                 // An unclosed block: Slack shows it as code anyway.
-                blocks.push(Block::CodeBlock(unescape(after.trim_matches('\n'))));
+                blocks.push(Block::CodeBlock(strip_link_markup(&unescape(
+                    after.trim_matches('\n'),
+                ))));
                 return blocks;
             }
         }
@@ -215,7 +268,7 @@ pub fn parse_spans(line: &str) -> Vec<Span> {
                 if !inner.is_empty() {
                     flush!();
                     out.push(match kind {
-                        Delim::Code => Span::Code(unescape(&inner)),
+                        Delim::Code => Span::Code(strip_link_markup(&unescape(&inner))),
                         Delim::Bold => Span::Bold(parse_spans(&inner)),
                         Delim::Italic => Span::Italic(parse_spans(&inner)),
                         Delim::Strike => Span::Strike(parse_spans(&inner)),
@@ -349,6 +402,16 @@ fn parse_angle(inner: &str) -> Span {
         // For everything else — `<!subteam^S123|@devs>` and the like — the
         // label is the rendering Slack itself provides: discarding it, as we did,
         // left the internal id on screen.
+        // A group mention carries an id, and only sometimes the handle. Keep
+        // both: unlabelled, the id is all there is until the workspace's group
+        // list can resolve it — printing it raw put `subteam^S099…` on screen.
+        if let Some(id) = body.strip_prefix("subteam^") {
+            return Span::Group {
+                id: id.to_string(),
+                label: (!label.is_empty())
+                    .then(|| label.trim_start_matches('@').to_string()),
+            };
+        }
         if !label.is_empty() {
             return Span::Broadcast(label.trim_start_matches('@').to_string());
         }
@@ -475,6 +538,10 @@ fn plain_spans(spans: Vec<Span>) -> String {
                     out.push('@');
                     out.push_str(&b);
                 }
+                Span::Group { id, label } => {
+                    out.push('@');
+                    out.push_str(label.as_deref().unwrap_or(&id));
+                }
                 Span::Emoji(e) => {
                     out.push(':');
                     out.push_str(&e);
@@ -573,6 +640,44 @@ mod tests {
         assert_eq!(spans("<!here>"), vec![Span::Broadcast("here".into())]);
     }
 
+    /// Slack sends a group mention with the label only sometimes. Bare, the id
+    /// is all the message carries — and it used to go on screen as
+    /// `subteam^S099HUL043Y`, which is what a real message looked like.
+    #[test]
+    fn a_group_mention_keeps_its_id_and_its_label_apart() {
+        assert_eq!(
+            spans("<!subteam^S099HUL043Y>"),
+            vec![Span::Group {
+                id: "S099HUL043Y".into(),
+                label: None
+            }]
+        );
+        assert_eq!(
+            spans("<!subteam^S099HUL043Y|@devs>"),
+            vec![Span::Group {
+                id: "S099HUL043Y".into(),
+                label: Some("devs".into())
+            }]
+        );
+    }
+
+    /// Written out as text, a group reads as a name — the label if there is
+    /// one, the id otherwise, never the raw markup.
+    #[test]
+    fn a_group_mention_is_written_as_a_name() {
+        assert_eq!(to_plain("ciao <!subteam^S1|@devs>"), "ciao @devs");
+        let bare = to_plain("ciao <!subteam^S099HUL043Y>");
+        assert!(!bare.contains("subteam^"), "markup left: {bare}");
+        assert_eq!(bare, "ciao @S099HUL043Y");
+    }
+
+    /// `@here` and friends are not groups and must not be caught by this.
+    #[test]
+    fn a_broadcast_is_not_a_group() {
+        assert_eq!(spans("<!here>"), vec![Span::Broadcast("here".into())]);
+        assert_eq!(spans("<!channel>"), vec![Span::Broadcast("channel".into())]);
+    }
+
     #[test]
     fn emoji_is_recognised_but_a_clock_time_is_not() {
         assert_eq!(spans(":tada:"), vec![Span::Emoji("tada".into())]);
@@ -609,6 +714,39 @@ mod tests {
         assert_eq!(to_editable("<https://x|sito>"), "<https://x|sito>");
         // Mentions and everything else are left alone.
         assert_eq!(to_editable("<@U1> ciao"), "<@U1> ciao");
+    }
+
+    #[test]
+    /// Slack linkifies URLs inside code too. The markup must not survive into
+    /// a code block: what you copy has to be what was written.
+    #[test]
+    fn a_link_inside_a_code_block_loses_its_markup() {
+        let b = parse("```\ncurl <https://app.slack.com/archives/C1/p123>\n```");
+        assert_eq!(
+            b[0],
+            Block::CodeBlock("curl https://app.slack.com/archives/C1/p123".into())
+        );
+    }
+
+    /// A labelled link keeps the label — that is what was typed.
+    #[test]
+    fn a_labelled_link_inside_code_keeps_its_label() {
+        assert_eq!(
+            spans("`vedi <https://x.dev|la pagina>`"),
+            vec![Span::Code("vedi la pagina".into())]
+        );
+    }
+
+    /// Angle brackets that are *code*, not links, are left exactly as they are:
+    /// generics, tags, comparisons.
+    #[test]
+    fn code_keeps_its_own_angle_brackets() {
+        let b = parse("```\nlet v: Vec<T> = x; if a < b { tag::<div>() }\n```");
+        assert_eq!(
+            b[0],
+            Block::CodeBlock("let v: Vec<T> = x; if a < b { tag::<div>() }".into())
+        );
+        assert_eq!(spans("`a <b> c`"), vec![Span::Code("a <b> c".into())]);
     }
 
     #[test]
@@ -1047,7 +1185,10 @@ mod date_tests {
     fn a_user_group_shows_its_name_not_its_id() {
         assert_eq!(
             spans("<!subteam^S123|@devs>"),
-            vec![Span::Broadcast("devs".into())]
+            vec![Span::Group {
+                id: "S123".into(),
+                label: Some("devs".into())
+            }]
         );
     }
 }

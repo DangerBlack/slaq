@@ -61,6 +61,8 @@ gui:
   emoji_search_hint: "search emoji…"
   add_reaction_hover: "Add a reaction"
   reply_in_thread_hover: "Reply in thread"
+  copy_code_hover: "Copy the code"
+  code_copied: "Code copied"
   copy_address: "Copy address"
   copy_link_hover: "Copy link"
   link_copied: "Link copied"
