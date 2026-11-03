@@ -38,12 +38,16 @@ jobs:
         with:
           # shiguredo_libvpx's source build needs llvm-nm/llvm-objcopy.
           components: llvm-tools
+      # `libopus-dev` is not optional: without it `audiopus_sys` falls back to
+      # building the vendored libopus with CMake, whose `cmake_minimum_required`
+      # predates 3.5 — CMake 4, which the runners now ship, refuses it outright.
+      # Locally it still builds only because an older CMake is installed.
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libxcb1-dev libx11-dev libgl1-mesa-dev libegl1-mesa-dev \
-            libssl-dev libasound2-dev nasm cmake pkg-config build-essential \
+            libssl-dev libasound2-dev libopus-dev nasm cmake pkg-config build-essential \
             mesa-vulkan-drivers libvulkan1
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --locked --all-targets
@@ -63,12 +67,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, llvm-tools
+      # `libopus-dev` is not optional: without it `audiopus_sys` falls back to
+      # building the vendored libopus with CMake, whose `cmake_minimum_required`
+      # predates 3.5 — CMake 4, which the runners now ship, refuses it outright.
+      # Locally it still builds only because an older CMake is installed.
       - name: System libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libxcb1-dev libx11-dev libgl1-mesa-dev libegl1-mesa-dev \
-            libssl-dev libasound2-dev nasm cmake pkg-config build-essential
+            libssl-dev libasound2-dev libopus-dev nasm cmake pkg-config build-essential
       - uses: Swatinem/rust-cache@v2
       # Deny lints that signal a bug; style/pedantic lints stay warnings.
       - run: cargo clippy --all-targets -- -D clippy::correctness -D clippy::suspicious
