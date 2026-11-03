@@ -9,6 +9,19 @@ The phases below are kept as they were written, because they document the
 reasoning. A few claims inside them are older than this header: where they have
 been overtaken, an inline note says so.
 
+## Open — the `webrtc` stack is nine breaking minors behind
+
+`webrtc` is pinned at 0.12 while upstream is at 0.21. Everything about calls
+sits on it — SDP, DTLS, SRTP — including the workarounds in
+`docs/huddle-protocol.md` (the SRTP_AEAD_AES_256_GCM panic, the TURN-over-TCP
+gap). The upgrade is therefore its own branch, and the only honest test for it
+is a real huddle.
+
+It also carries a security bill: `RUSTSEC-2026-0387` (timing variability in
+`crypto-bigint`, used by `webrtc-dtls` for the key exchange) can only be closed
+once `elliptic-curve` takes `crypto-bigint` 0.7 and `webrtc-dtls` follows. Until
+then it is ignored in `deny.toml`, with the reasoning written there.
+
 ## Update — 2026-11-03 — 0.9.3
 
 - **0.9.3: the caret goes where you are about to write.** Opening a

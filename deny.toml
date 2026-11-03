@@ -45,6 +45,20 @@ ignore = [
   "RUSTSEC-2026-0370",
   "RUSTSEC-2026-0371",
   "RUSTSEC-2026-0372",
+  # `crypto-bigint` 0.5 — timing variability in operations meant to be
+  # constant-time. It reaches us through the DTLS handshake of the huddle
+  # stack: `webrtc` -> `webrtc-dtls` -> `p256`/`p384` -> `elliptic-curve`.
+  # This one is *not* off our path: it is the key exchange of a real call.
+  # Accepted deliberately and with a plan, not because it is harmless: the fix
+  # is in 0.7.6, a major that `elliptic-curve` (and then `webrtc-dtls`) has to
+  # take first, so we cannot pull it in on our own. `webrtc` itself is nine
+  # breaking minors behind (0.12 vs 0.21), and that upgrade touches SDP, DTLS
+  # and SRTP — including the workarounds written down in
+  # `docs/huddle-protocol.md`. It needs a branch of its own and a real call to
+  # test against. Exploiting this needs precise timing measurements of our
+  # process, which on a desktop client means an attacker already on the machine.
+  # Revisit with the `webrtc` upgrade; see the roadmap.
+  "RUSTSEC-2026-0387",
 ]
 
 [bans]
