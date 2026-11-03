@@ -10,4 +10,11 @@ ignore = [
     # introspection XML, never message content.
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+    # `crypto-bigint` 0.5 — timing variability, reached through the huddle's
+    # DTLS key exchange (`webrtc` -> `webrtc-dtls` -> `p256`/`p384`). Accepted
+    # with a plan, not dismissed: the fix is a major that `elliptic-curve` and
+    # `webrtc-dtls` have to take first, and our `webrtc` is nine breaking minors
+    # behind. `deny.toml` carries the full reasoning; the roadmap carries the
+    # upgrade as open work.
+    "RUSTSEC-2026-0387",
 ]
