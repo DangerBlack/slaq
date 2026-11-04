@@ -10784,7 +10784,25 @@ mod snapshot_tests {
     /// set (the CI workflow sets it) every snapshot is still **rendered**, so a
     /// panic or a failed layout assertion still fails, but its pixels are not
     /// compared. Locally the comparison always runs.
+    /// Serialises every wgpu renderer the suite creates.
+    ///
+    /// `TestRenderer` (and `wgpu_snapshot`) each bring up a device of their
+    /// own, and several of those at once on the software driver CI runs with
+    /// takes the whole process down with a SIGSEGV. It happens after dozens of
+    /// tests have already passed, so it reads as a random crash rather than as
+    /// "two renderers at the same time" — it cost us a green build twice.
+    /// Rendering is a small slice of each test, so holding this across it
+    /// leaves the suite parallel where it matters.
+    ///
+    /// A poisoned lock is taken anyway: one panicking test should fail on its
+    /// own, not turn every later render into a second failure.
+    fn render_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        LOCK.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn snapshot<S>(h: &egui_kittest::Harness<'_, S>, name: &str) {
+        let _rendering = render_lock();
         if std::env::var_os("SLAQ_SNAPSHOT_RENDER_ONLY").is_some() {
             let _ = egui_kittest::wgpu::TestRenderer::new().render(h);
             return;
@@ -11820,6 +11838,7 @@ mod snapshot_tests {
         // The filter field is inset from the panel, so its edge is not the
         // panel's: take instead the rightmost column that is still untouched
         // sidebar background — past it lies the separator and the conversation.
+        let _rendering = render_lock();
         let img = egui_kittest::wgpu::TestRenderer::new().render(&h);
         let bg = *img.get_pixel(8, 700);
         let (top, bottom) = (260u32, 760u32);
@@ -12192,6 +12211,7 @@ mod snapshot_tests {
             }
             let mut h = app_harness(move |ctx| gui.draw(ctx));
             h.run();
+            let _rendering = render_lock();
             let image = egui_kittest::wgpu::TestRenderer::new().render(&h);
             assert_no_unpainted_column(&image, open_thread);
         }
@@ -12519,6 +12539,7 @@ mod snapshot_tests {
         // fail without a session and overwrite the status line: restore it.
         state.try_write().expect("state not locked").status = "Northwind · launch week".to_string();
         h.run();
+        let _rendering = render_lock();
         let image = egui_kittest::wgpu::TestRenderer::new().render(&h);
         let out = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("docs/screenshot.png");
         image.save(&out).expect("save the screenshot");
