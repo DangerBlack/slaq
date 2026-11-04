@@ -7297,7 +7297,21 @@ mod tests {
         // A live mod runs it (the fixture decorates with its counter).
         let out = host.mods[0].request(job(index.clone())).unwrap();
         assert_eq!(out.len(), 1, "a live mod runs the job: {out:?}");
-        let calls = host.statuses()[0].calls;
+        // The counter is written by the worker, not by `request`, so reading it
+        // straight away can catch the job still uncounted — and the increment
+        // then lands *after* the stop, where it reads as a refused job that
+        // ran. Wait for it to settle before taking the reference value.
+        let calls = {
+            let start = std::time::Instant::now();
+            loop {
+                let n = host.statuses()[0].calls;
+                if n > 0 || start.elapsed() > std::time::Duration::from_secs(5) {
+                    break n;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        };
+        assert!(calls > 0, "the first job was never counted");
         assert!(host.stop(&id));
         // Queued straight to the worker, past the coordinator's own trapped check.
         let out = host.mods[0].request(job(index)).unwrap();
