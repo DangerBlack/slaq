@@ -4,6 +4,10 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use tracing::info;
 
+#[cfg(target_os = "linux")]
+#[path = "linux_leveldb.rs"]
+mod linux_leveldb;
+
 /// Slack session credentials.
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Credentials {
@@ -264,6 +268,12 @@ fn write_credentials_file(path: &std::path::Path, stored: &StoredCredentials) ->
 /// Slack stores xoxc tokens in Chromium's LevelDB-backed localStorage
 /// under the key `localConfig_v2`. The value is a JSON blob with team info.
 pub fn extract_from_leveldb(slack_dir: &std::path::Path) -> Result<Vec<TeamEntry>> {
+    #[cfg(target_os = "linux")]
+    {
+        return linux_leveldb::extract(slack_dir);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
     let leveldb_dir = slack_dir.join("Local Storage").join("leveldb");
     if !leveldb_dir.exists() {
         anyhow::bail!("LevelDB directory not found: {leveldb_dir:?}");
@@ -310,6 +320,7 @@ pub fn extract_from_leveldb(slack_dir: &std::path::Path) -> Result<Vec<TeamEntry
 
     info!("Found {} team(s) in Slack Desktop LevelDB", teams.len());
     Ok(teams)
+    }
 }
 
 /// Parse team entries from a JSON config string containing localConfig_v2 data.

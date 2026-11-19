@@ -37,11 +37,30 @@ pub fn extract_d_cookie(slack_dir: &Path) -> Result<String> {
 
     let decrypted = decrypt_chromium_cookie(&encrypted_value, password.as_bytes())?;
 
-    let cookie_str = String::from_utf8(decrypted)
+    let db_version: String = conn.query_row(
+        "SELECT value FROM meta WHERE key = 'version'",
+        [],
+        |row| row.get(0),
+    ).context("Failed to read Slack cookie database version")?;
+    let db_version = db_version.parse().context("Invalid Slack cookie database version")?;
+    let cookie_bytes = cookie_value_without_host_digest(&decrypted, db_version)?;
+    let cookie_str = String::from_utf8(cookie_bytes.to_vec())
         .context("Decrypted cookie is not valid UTF-8")?;
 
     info!("Successfully decrypted d cookie");
     Ok(cookie_str)
+}
+
+fn cookie_value_without_host_digest(value: &[u8], db_version: i64) -> Result<&[u8]> {
+    if db_version < 24 {
+        return Ok(value);
+    }
+    use sha2::{Digest, Sha256};
+    let expected = Sha256::digest(b".slack.com");
+    if value.len() < expected.len() || &value[..expected.len()] != expected.as_slice() {
+        anyhow::bail!("Slack cookie host digest missing or invalid");
+    }
+    Ok(&value[expected.len()..])
 }
 
 /// Get the Slack Safe Storage password from the OS keychain.
@@ -49,6 +68,11 @@ pub fn extract_d_cookie(slack_dir: &Path) -> Result<String> {
 /// On Linux, Electron's safeStorage stores the AES key in the login keyring
 /// under service "Slack Safe Storage" with account "Slack Key" or "Slack".
 fn get_slack_safe_storage_password() -> Result<String> {
+    #[cfg(target_os = "linux")]
+    if let Some(password) = get_linux_slack_safe_storage_password()? {
+        return Ok(password);
+    }
+
     let service = "Slack Safe Storage";
 
     // Try multiple possible account names
@@ -69,11 +93,41 @@ fn get_slack_safe_storage_password() -> Result<String> {
     )
 }
 
+/// Electron's Linux safeStorage item uses libsecret attributes, not the
+/// service/username attributes used by the Rust keyring crate.
+#[cfg(target_os = "linux")]
+fn get_linux_slack_safe_storage_password() -> Result<Option<String>> {
+    use secret_service::{blocking::SecretService, EncryptionType};
+    use std::collections::HashMap;
+
+    let service = SecretService::connect(EncryptionType::Dh)
+        .context("Failed to connect to Secret Service")?;
+    let items = service
+        .search_items(HashMap::from([
+            ("application", "Slack"),
+            ("xdg:schema", "chrome_libsecret_os_crypt_password_v2"),
+        ]))
+        .context("Failed to find Slack safeStorage item")?;
+    let count = items.unlocked.len() + items.locked.len();
+    if count > 1 {
+        anyhow::bail!("Multiple Slack safeStorage items found; refusing ambiguous lookup");
+    }
+    let item = match items.unlocked.first().or_else(|| items.locked.first()) {
+        Some(item) => item,
+        None => return Ok(None),
+    };
+    if items.unlocked.is_empty() {
+        item.unlock().context("Failed to unlock Slack safeStorage item")?;
+    }
+    let secret = item.get_secret().context("Failed to read Slack safeStorage item")?;
+    Ok(Some(String::from_utf8(secret).context("Slack safeStorage password is not UTF-8")?))
+}
+
 /// Decrypt a Chromium/Electron encrypted cookie value.
 ///
 /// Format: `<3-byte version prefix "v10" or "v11"> <ciphertext>`
 /// Encryption: AES-128-CBC with PKCS7 padding
-/// Key derivation: PBKDF2-SHA1 with salt "saltysalt", 1003 iterations
+/// Key derivation: PBKDF2-SHA1 with salt "saltysalt", one iteration on Linux
 /// IV: 16 bytes of ASCII space (0x20)
 pub fn decrypt_chromium_cookie(encrypted: &[u8], password: &[u8]) -> Result<Vec<u8>> {
     use aes::cipher::{block_padding::Pkcs7, BlockDecryptMut, KeyIvInit};
@@ -92,10 +146,11 @@ pub fn decrypt_chromium_cookie(encrypted: &[u8], password: &[u8]) -> Result<Vec<
     let ciphertext = &encrypted[3..];
 
     let mut key = [0u8; 16];
+    let iterations = if cfg!(target_os = "linux") { 1 } else { 1003 };
     pbkdf2::pbkdf2::<hmac::Hmac<sha1::Sha1>>(
         password,
         b"saltysalt",
-        1003,
+        iterations,
         &mut key,
     )
     .map_err(|e| anyhow::anyhow!("PBKDF2 failed: {e}"))?;
@@ -135,7 +190,8 @@ mod tests {
 
         // Encrypt
         let mut key = [0u8; 16];
-        pbkdf2::pbkdf2::<hmac::Hmac<sha1::Sha1>>(password, b"saltysalt", 1003, &mut key).unwrap();
+        let iterations = if cfg!(target_os = "linux") { 1 } else { 1003 };
+        pbkdf2::pbkdf2::<hmac::Hmac<sha1::Sha1>>(password, b"saltysalt", iterations, &mut key).unwrap();
         let iv = [0x20u8; 16];
         let mut buf = plaintext.to_vec();
         buf.extend_from_slice(&[0u8; 16]); // padding room
@@ -150,5 +206,16 @@ mod tests {
         // Decrypt
         let decrypted = decrypt_chromium_cookie(&encrypted, password).unwrap();
         assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn validates_cookie_host_digest_for_version_24() {
+        use sha2::{Digest, Sha256};
+        let mut value = Sha256::digest(b".slack.com").to_vec();
+        value.extend_from_slice(b"xoxd-test");
+        assert_eq!(cookie_value_without_host_digest(&value, 24).unwrap(), b"xoxd-test");
+        value[0] ^= 1;
+        assert!(cookie_value_without_host_digest(&value, 24).is_err());
+        assert_eq!(cookie_value_without_host_digest(b"legacy", 23).unwrap(), b"legacy");
     }
 }

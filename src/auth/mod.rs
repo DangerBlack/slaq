@@ -86,7 +86,8 @@ pub async fn extract_from_desktop() -> Result<Credentials> {
         anyhow::bail!("No teams found in Slack Desktop LevelDB");
     }
 
-    // Resolve workspace URLs and store each team's credentials
+    // Resolve workspace URLs and store each team's credentials.
+    let mut first_verified: Option<Credentials> = None;
     for team in &teams {
         let ws = if team.url.is_empty() {
             anyhow::bail!(
@@ -117,6 +118,9 @@ pub async fn extract_from_desktop() -> Result<Credentials> {
                 };
                 store_credentials(&final_creds.workspace_url, &final_creds.xoxc, &final_creds.xoxd)?;
                 info!("Stored credentials for {}", final_creds.workspace_url);
+                if first_verified.is_none() {
+                    first_verified = Some(final_creds);
+                }
             }
             Err(e) => {
                 tracing::warn!("Skipping team {}: auth test failed: {e}", team.url);
@@ -124,8 +128,7 @@ pub async fn extract_from_desktop() -> Result<Credentials> {
         }
     }
 
-    // Return the first valid credential set
-    load_credentials(None)
+    first_verified.context("No desktop workspace session could be verified")
 }
 
 fn detect_slack_dir() -> Result<std::path::PathBuf> {
