@@ -88,6 +88,16 @@ The first build compiles **libvpx from source**: ~15 minutes. Only the first tim
 The binary lands in `target/release/slaq`.
 The **debug build is huge (~650 MB)**: always share the **release** one.
 
+For a user-local graphical launcher and icon (fish shell):
+
+```fish
+install -Dm755 target/release/slaq ~/.local/bin/slaq
+install -Dm644 data/slaq.desktop ~/.local/share/applications/slaq.desktop
+install -Dm644 data/slaq.svg ~/.local/share/icons/hicolor/scalable/apps/slaq.svg
+```
+
+The launcher expects `~/.local/bin` to be on the desktop session's `PATH`.
+
 ---
 
 ## 4. First launch (each person for themselves)
@@ -105,6 +115,18 @@ The **debug build is huge (~650 MB)**: always share the **release** one.
   `~/.local/share/slaq/mods/`; their secrets in the system keyring.
 
 **Don't share credentials**: each person runs their own `login`.
+
+To select Edge for the browser login, run `env SLAQ_BROWSER=microsoft-edge slaq login --browser`.
+Slaq opens its own browser profile; it does not reuse an existing signed-in
+profile. Organisation-managed sign-in and device compliance may require
+additional configuration or administrator approval.
+
+On Linux, desktop-session import uses a private, size-limited tmpfs snapshot of
+the Slack local-storage database rather than opening the live database. It
+removes the snapshot after normal completion or error. tmpfs pages can be
+swapped, and an abrupt process termination may leave the snapshot until cleanup
+or reboot. Imports may validate multiple signed-in workspaces; run them only
+with the appropriate authorization.
 
 ---
 

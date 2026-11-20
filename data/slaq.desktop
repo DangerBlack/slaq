@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Slaq
+Comment=Native Slack client
+Exec=slaq gui
+Icon=slaq
+StartupWMClass=slaq
+Terminal=false
+Categories=Network;InstantMessaging;
