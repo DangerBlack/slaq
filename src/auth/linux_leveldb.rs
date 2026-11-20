@@ -1,7 +1,7 @@
 //! Read Slack's live local storage through a short-lived private RAM snapshot.
 use super::TeamEntry;
-use anyhow::{bail, Context, Result};
-use rusty_leveldb::{LdbIterator, Options, DB};
+use anyhow::{Context, Result, bail};
+use rusty_leveldb::{DB, LdbIterator, Options};
 use serde::Deserialize;
 use std::collections::{BTreeMap, HashMap};
 use std::ffi::OsString;
@@ -16,8 +16,11 @@ fn files(dir: &Path) -> Result<BTreeMap<OsString, (u64, SystemTime)>> {
         let entry = entry?;
         let name = entry.file_name();
         let n = name.to_string_lossy();
-        if n == "CURRENT" || n.starts_with("MANIFEST-") || n.ends_with(".ldb")
-            || n.ends_with(".sst") || n.ends_with(".log")
+        if n == "CURRENT"
+            || n.starts_with("MANIFEST-")
+            || n.ends_with(".ldb")
+            || n.ends_with(".sst")
+            || n.ends_with(".log")
         {
             if !entry.file_type()?.is_file() {
                 bail!("Unexpected non-file in Slack local storage");
@@ -29,7 +32,9 @@ fn files(dir: &Path) -> Result<BTreeMap<OsString, (u64, SystemTime)>> {
     if !files.contains_key(std::ffi::OsStr::new("CURRENT")) {
         bail!("Slack local storage CURRENT is missing");
     }
-    let size = files.values().try_fold(0u64, |a, (n, _)| a.checked_add(*n))
+    let size = files
+        .values()
+        .try_fold(0u64, |a, (n, _)| a.checked_add(*n))
         .context("Slack local storage size overflow")?;
     if size > MAX_SNAPSHOT_BYTES {
         bail!("Slack local storage exceeds RAM snapshot limit");
@@ -56,8 +61,10 @@ fn decode(value: &[u8]) -> Result<String> {
     match value.split_first() {
         Some((1, bytes)) => Ok(bytes.iter().map(|&b| char::from(b)).collect()),
         Some((0, bytes)) if bytes.len() % 2 == 0 => {
-            let words: Vec<u16> = bytes.chunks_exact(2)
-                .map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
+            let words: Vec<u16> = bytes
+                .chunks_exact(2)
+                .map(|p| u16::from_le_bytes([p[0], p[1]]))
+                .collect();
             String::from_utf16(&words).context("Invalid UTF-16 local storage value")
         }
         _ => bail!("Unsupported local storage string encoding"),
@@ -71,25 +78,42 @@ struct Config {
 
 #[derive(Deserialize)]
 struct Team {
-    #[serde(default)] token: String,
-    #[serde(default)] url: String,
-    #[serde(default)] user_id: String,
+    #[serde(default)]
+    token: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    user_id: String,
 }
 
 fn parse(value: &[u8]) -> Result<Vec<TeamEntry>> {
     let json = decode(value)?;
-    let config: Config = serde_json::from_str(&json).context("Invalid Slack local configuration")?;
+    let config: Config =
+        serde_json::from_str(&json).context("Invalid Slack local configuration")?;
     let mut result = Vec::new();
     for (team_id, team) in config.teams {
-        if !team.token.starts_with("xoxc-") { continue; }
+        if !team.token.starts_with("xoxc-") {
+            continue;
+        }
         let url = url::Url::parse(&team.url).context("Invalid workspace URL")?;
         let host = url.host_str().unwrap_or_default();
-        if url.scheme() != "https" || !host.ends_with(".slack.com") || url.username() != ""
-            || url.password().is_some() || url.port().is_some()
+        if url.scheme() != "https"
+            || !host.ends_with(".slack.com")
+            || !url.username().is_empty()
+            || url.password().is_some()
+            || url.port().is_some()
+            || url.path() != "/"
+            || url.query().is_some()
+            || url.fragment().is_some()
         {
             bail!("Refusing a non-Slack workspace URL");
         }
-        result.push(TeamEntry { url: team.url, token: team.token, user_id: team.user_id, team_id });
+        result.push(TeamEntry {
+            url: team.url,
+            token: team.token,
+            user_id: team.user_id,
+            team_id,
+        });
     }
     result.sort_by(|a, b| a.url.cmp(&b.url));
     Ok(result)
@@ -99,8 +123,10 @@ pub(super) fn extract(slack_dir: &Path) -> Result<Vec<TeamEntry>> {
     require_tmpfs()?;
     let source = slack_dir.join("Local Storage").join("leveldb");
     let before = files(&source).context("Failed to inspect Slack local storage")?;
-    let snapshot = tempfile::Builder::new().prefix("slaq-leveldb-")
-        .tempdir_in("/dev/shm").context("Failed to create private RAM snapshot")?;
+    let snapshot = tempfile::Builder::new()
+        .prefix("slaq-leveldb-")
+        .tempdir_in("/dev/shm")
+        .context("Failed to create private RAM snapshot")?;
     for name in before.keys() {
         std::fs::copy(source.join(name), snapshot.path().join(name))
             .context("Failed to copy Slack local storage snapshot")?;
@@ -115,7 +141,9 @@ pub(super) fn extract(slack_dir: &Path) -> Result<Vec<TeamEntry>> {
     let mut config = None;
     while let Some((key, value)) = iter.next() {
         if key.ends_with(b"localConfig_v2") {
-            if config.is_some() { bail!("Multiple Slack local configuration records found"); }
+            if config.is_some() {
+                bail!("Multiple Slack local configuration records found");
+            }
             config = Some(parse(&value)?);
         }
     }
@@ -129,21 +157,47 @@ mod tests {
     #[test]
     fn parses_latin1_and_rejects_non_slack_hosts() {
         let json = r#"{"teams":{"T01":{"token":"xoxc-test","url":"https://example.slack.com/","user_id":"U01"}}}"#;
-        let mut bytes = vec![1]; bytes.extend_from_slice(json.as_bytes());
+        let mut bytes = vec![1];
+        bytes.extend_from_slice(json.as_bytes());
         let teams = parse(&bytes).unwrap();
         assert_eq!(teams.len(), 1);
         assert_eq!(teams[0].team_id, "T01");
         let bad = json.replace("example.slack.com", "example.invalid");
-        let mut bytes = vec![1]; bytes.extend_from_slice(bad.as_bytes());
+        let mut bytes = vec![1];
+        bytes.extend_from_slice(bad.as_bytes());
         assert!(parse(&bytes).is_err());
     }
 
     #[test]
     fn decodes_utf16_and_fails_closed_on_invalid_encoding() {
         let mut bytes = vec![0];
-        for ch in "hello".encode_utf16() { bytes.extend_from_slice(&ch.to_le_bytes()); }
+        for ch in "hello".encode_utf16() {
+            bytes.extend_from_slice(&ch.to_le_bytes());
+        }
         assert_eq!(decode(&bytes).unwrap(), "hello");
         assert!(decode(&[0, 1]).is_err());
         assert!(decode(&[2]).is_err());
+    }
+
+    #[test]
+    fn reads_current_config_from_a_snapshot() {
+        let parent = tempfile::tempdir().unwrap();
+        let source = parent.path().join("Local Storage").join("leveldb");
+        std::fs::create_dir_all(&source).unwrap();
+        let mut options = Options::default();
+        options.create_if_missing = true;
+        let mut db = DB::open(&source, options).unwrap();
+        let mut value = vec![1];
+        value.extend_from_slice(
+            br#"{"teams":{"T01":{"token":"xoxc-test","url":"https://example.slack.com/"}}}"#,
+        );
+        db.put(b"_https://app.slack.com\0\x01localConfig_v2", &value)
+            .unwrap();
+        db.flush().unwrap();
+        drop(db);
+        let teams = extract(parent.path()).unwrap();
+        assert_eq!(teams.len(), 1);
+        assert_eq!(teams[0].team_id, "T01");
+        assert_eq!(teams[0].url, "https://example.slack.com/");
     }
 }
