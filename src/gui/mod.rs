@@ -10258,7 +10258,9 @@ pub fn run(app: App) -> Result<()> {
     };
     let rt = tokio::runtime::Handle::current();
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default().with_inner_size([1200.0, 820.0]),
+        viewport: egui::ViewportBuilder::default()
+            .with_app_id("slaq")
+            .with_inner_size([1200.0, 820.0]),
         ..Default::default()
     };
 

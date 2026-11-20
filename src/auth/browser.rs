@@ -25,13 +25,15 @@ use crate::auth::store_credentials;
 
 type Ws = WebSocketStream<MaybeTlsStream<TcpStream>>;
 
-const BROWSER_CANDIDATES: [&str; 6] = [
+const BROWSER_CANDIDATES: [&str; 8] = [
     "google-chrome",
     "google-chrome-stable",
     "chromium",
     "chromium-browser",
     "brave-browser",
     "brave",
+    "microsoft-edge",
+    "microsoft-edge-stable",
 ];
 
 const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
@@ -76,12 +78,7 @@ const HOOK_JS: &str = r#"(()=>{
 })()"#;
 
 pub async fn run(workspace: Option<&str>) -> Result<()> {
-    let browser = find_browser().ok_or_else(|| {
-        anyhow!(
-            "no Chromium/Chrome found in PATH (tried {})",
-            BROWSER_CANDIDATES.join(", ")
-        )
-    })?;
+    let browser = find_browser()?;
 
     let profile = profile_dir()?;
     std::fs::create_dir_all(&profile).context("failed to create the browser profile directory")?;
@@ -97,7 +94,7 @@ pub async fn run(workspace: Option<&str>) -> Result<()> {
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .with_context(|| format!("failed to launch {browser}"))?;
+        .with_context(|| format!("failed to launch {}", browser.display()))?;
 
     let _guard = BrowserGuard { child };
 
@@ -619,14 +616,34 @@ fn debug_enabled() -> bool {
         .unwrap_or(false)
 }
 
-fn find_browser() -> Option<String> {
-    let path = std::env::var_os("PATH")?;
-    for dir in std::env::split_paths(&path) {
+fn find_browser() -> Result<PathBuf> {
+    let selected = std::env::var_os("SLAQ_BROWSER");
+    let path = std::env::var_os("PATH");
+    find_browser_in(selected.as_deref(), path.as_deref()).ok_or_else(|| {
+        if selected.is_some() {
+            anyhow!("SLAQ_BROWSER does not name an available browser executable")
+        } else {
+            anyhow!("no supported browser found in PATH (tried {})", BROWSER_CANDIDATES.join(", "))
+        }
+    })
+}
+
+fn find_browser_in(selected: Option<&std::ffi::OsStr>, path: Option<&std::ffi::OsStr>) -> Option<PathBuf> {
+    use std::os::unix::fs::PermissionsExt;
+    let executable = |p: &Path| {
+        std::fs::metadata(p).is_ok_and(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
+    };
+    if let Some(selected) = selected {
+        let name = Path::new(selected);
+        if name.is_absolute() || name.components().count() > 1 {
+            return executable(name).then(|| name.to_path_buf());
+        }
+        return std::env::split_paths(path?).map(|dir| dir.join(name)).find(|p| executable(p));
+    }
+    for dir in std::env::split_paths(path?) {
         for name in BROWSER_CANDIDATES {
             let candidate = dir.join(name);
-            if candidate.is_file() {
-                return Some(candidate.to_string_lossy().into_owned());
-            }
+            if executable(&candidate) { return Some(candidate); }
         }
     }
     None
@@ -670,6 +687,23 @@ fn start_url(workspace: Option<&str>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn browser_selection_supports_edge_and_explicit_override() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let chrome = dir.path().join("google-chrome");
+        let edge = dir.path().join("microsoft-edge");
+        std::fs::write(&chrome, "").unwrap();
+        std::fs::write(&edge, "").unwrap();
+        std::fs::set_permissions(&chrome, std::fs::Permissions::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(&edge, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let path = dir.path().as_os_str();
+        assert_eq!(find_browser_in(None, Some(path)), Some(chrome));
+        assert_eq!(find_browser_in(Some(std::ffi::OsStr::new("microsoft-edge")), Some(path)), Some(edge.clone()));
+        assert_eq!(find_browser_in(Some(edge.as_os_str()), None), Some(edge));
+        assert_eq!(find_browser_in(Some(std::ffi::OsStr::new("missing")), Some(path)), None);
+    }
 
     #[test]
     fn finds_token_in_form_body() {
